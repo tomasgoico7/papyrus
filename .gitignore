@@ -1,0 +1,31 @@
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Frontend
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/next-env.d.ts
+frontend/.vercel
+*.tsbuildinfo
+
+# Gateway
+gateway/bin
+gateway/server
+
+# AI service
+ai-service/.venv
+ai-service/__pycache__
+ai-service/**/__pycache__
+ai-service/.pytest_cache
+ai-service/*.egg-info
+
+# Editors / OS
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+*.log
