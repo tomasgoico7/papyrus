@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Surfaces — a warm paper white, with pure white reserved for raised cards. */
+    --canvas: 40 33% 99%;
+    --surface: 0 0% 100%;
+
+    /* Ink — a near-black with a faint cool cast, plus two muted steps. */
+    --ink: 222 16% 11%;
+    --ink-muted: 220 6% 42%;
+    --ink-faint: 220 5% 64%;
+
+    --line: 36 10% 90%;
+
+    /* The single accent. Used for the primary action, the score, and focus. */
+    --accent: 211 100% 45%;
+    --accent-soft: 211 100% 96%;
+
+    --positive: 156 42% 38%;
+    --warning: 28 82% 46%;
+    --danger: 0 72% 51%;
+
+    /* Shadow tint stays dark in both themes so dark mode never gets a light halo. */
+    --shadow: 222 47% 11%;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --canvas: 222 16% 7%;
+    --surface: 222 14% 12%;
+
+    --ink: 40 20% 96%;
+    --ink-muted: 220 9% 64%;
+    --ink-faint: 220 8% 46%;
+
+    --line: 220 12% 22%;
+
+    --accent: 211 100% 62%;
+    --accent-soft: 213 55% 18%;
+
+    --positive: 156 46% 52%;
+    --warning: 28 86% 60%;
+    --danger: 0 72% 58%;
+
+    --shadow: 0 0% 0%;
+
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: hsl(var(--line));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    background-color: hsl(var(--canvas));
+    color: hsl(var(--ink));
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::selection {
+    background-color: hsl(var(--accent) / 0.18);
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--accent) / 0.6);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Reusable chip styles for skills, kept here so the markup stays declarative. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm;
+  }
+}
