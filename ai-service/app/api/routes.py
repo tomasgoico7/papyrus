@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import ApiError
@@ -26,12 +26,27 @@ def get_analyzer(settings: Settings = Depends(get_settings)) -> CVAnalyzer:
     return _analyzer
 
 
+def verify_internal_token(
+    x_internal_token: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Reject calls that bypass the gateway. Skipped when no secret is set so
+    local development (and the gateway without a token) keeps working."""
+    if settings.internal_api_key and x_internal_token != settings.internal_api_key:
+        raise ApiError(401, "unauthorized", "A valid internal token is required.")
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.post("/analyze", response_model=AnalysisResult, response_model_by_alias=True)
+@router.post(
+    "/analyze",
+    response_model=AnalysisResult,
+    response_model_by_alias=True,
+    dependencies=[Depends(verify_internal_token)],
+)
 async def analyze(
     cv: UploadFile = File(...),
     job_offer: str = Form(..., alias="jobOffer"),

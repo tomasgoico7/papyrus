@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     max_cv_chars: int = 20_000
+    # Shared secret the gateway must present. Empty disables the check (local dev).
+    internal_api_key: str = ""
 
     @property
     def is_production(self) -> bool:

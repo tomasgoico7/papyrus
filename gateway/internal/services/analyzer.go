@@ -33,12 +33,14 @@ func (e *UpstreamError) IsClientError() bool {
 // AnalyzerClient talks to the Python AI service.
 type AnalyzerClient struct {
 	baseURL string
+	token   string
 	http    *http.Client
 }
 
-func NewAnalyzerClient(baseURL string, client *http.Client) *AnalyzerClient {
+func NewAnalyzerClient(baseURL, token string, client *http.Client) *AnalyzerClient {
 	return &AnalyzerClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
+		token:   token,
 		http:    client,
 	}
 }
@@ -62,6 +64,9 @@ func (c *AnalyzerClient) Analyze(ctx context.Context, req AnalyzeRequest) (*tran
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", contentType)
+	if c.token != "" {
+		httpReq.Header.Set("X-Internal-Token", c.token)
+	}
 
 	resp, err := c.http.Do(httpReq)
 	if err != nil {

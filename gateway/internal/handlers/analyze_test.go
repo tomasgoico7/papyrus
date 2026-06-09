@@ -20,7 +20,7 @@ import (
 
 func newEngine(aiURL string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	client := services.NewAnalyzerClient(aiURL, &http.Client{})
+	client := services.NewAnalyzerClient(aiURL, "", &http.Client{})
 	handler := handlers.NewAnalyzeHandler(client, 5<<20, 10*time.Second)
 
 	engine := gin.New()

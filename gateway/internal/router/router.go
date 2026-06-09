@@ -26,7 +26,7 @@ func New(cfg *config.Config) *gin.Engine {
 
 	// The context deadline set per request governs upstream cancellation, so the
 	// shared client itself is left without a blanket timeout.
-	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, &http.Client{})
+	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, cfg.AIServiceToken, &http.Client{})
 	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	keySet := auth.NewKeySet(cfg.JWKSURL)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
