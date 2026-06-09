@@ -42,6 +42,10 @@ class CVAnalyzer:
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=0.2,
+            # REST avoids gRPC egress that hangs on some hosts (e.g. Render); the
+            # timeout makes a stuck call fail fast instead of holding the worker.
+            transport="rest",
+            timeout=45,
         )
         chain = build_prompt() | model.with_structured_output(LLMAnalysis)
         return cls(chain)
