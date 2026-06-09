@@ -70,7 +70,7 @@ export function AnalyzerForm({
           placeholder={t.dashboard.jobPlaceholder}
           rows={8}
           disabled={pending}
-          className="w-full resize-none rounded-xl border border-line bg-canvas px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-faint focus:border-ink-faint"
+          className="w-full resize-none break-words rounded-xl border border-line bg-canvas px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-faint focus:border-ink-faint"
         />
       </Field>
 

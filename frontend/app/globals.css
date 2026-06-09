@@ -72,6 +72,7 @@
     background-color: hsl(var(--canvas));
     color: hsl(var(--ink));
     font-feature-settings: "cv11", "ss01";
+    overflow-x: hidden;
   }
 
   ::selection {
