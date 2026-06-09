@@ -8,6 +8,7 @@ import { SiteHeader } from "@/components/marketing/site-header";
 import { buttonClasses } from "@/components/ui/button";
 import { getServerDictionary } from "@/lib/i18n/server";
 import { createClient } from "@/lib/supabase/server";
+import type { AuthenticatedUser } from "@/lib/types";
 
 export default async function LandingPage() {
   const t = getServerDictionary();
@@ -15,6 +16,15 @@ export default async function LandingPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  const profile: AuthenticatedUser | null = user
+    ? {
+        id: user.id,
+        email: user.email ?? "",
+        fullName: (user.user_metadata.full_name as string | undefined) ?? null,
+        avatarUrl: (user.user_metadata.avatar_url as string | undefined) ?? null,
+      }
+    : null;
 
   const primaryCta = user ? (
     <Link href="/dashboard" className={buttonClasses("primary", "lg")}>
@@ -26,7 +36,7 @@ export default async function LandingPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader />
+      <SiteHeader user={profile} />
 
       <main className="flex-1">
         <section className="mx-auto grid max-w-content items-center gap-x-16 gap-y-14 px-6 pb-20 pt-16 lg:grid-cols-[1.05fr_0.95fr] lg:pb-24 lg:pt-24">
