@@ -19,11 +19,6 @@ export class GatewayError extends Error {
   }
 }
 
-/**
- * Sends the CV and job posting to the gateway for analysis. The gateway owns
- * auth, validation and rate limiting, so the client only forwards the access
- * token and translates the error envelope into a typed error.
- */
 export async function requestAnalysis({
   cv,
   jobOffer,

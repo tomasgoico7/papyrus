@@ -8,11 +8,6 @@ type CookiesToSet = { name: string; value: string; options: CookieOptions }[];
 
 const PROTECTED_PREFIX = "/dashboard";
 
-/**
- * Refreshes the Supabase session on every request and gates protected routes.
- * Returning the mutated response is what propagates rotated auth cookies back to
- * the browser, so callers must return this object verbatim.
- */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -42,8 +37,6 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user && request.nextUrl.pathname.startsWith(PROTECTED_PREFIX)) {
-    // Build the redirect from the browser-facing origin, not request.nextUrl,
-    // whose host is the container's internal bind address under Docker.
     const redirectUrl = new URL("/", requestOrigin(request));
     redirectUrl.searchParams.set("auth", "required");
     return NextResponse.redirect(redirectUrl);

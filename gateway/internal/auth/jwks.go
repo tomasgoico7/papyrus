@@ -1,6 +1,3 @@
-// Package auth resolves the public keys used to verify Supabase access tokens.
-// Supabase signs tokens with asymmetric keys (ES256/RS256) published as a JWKS,
-// so the gateway fetches that key set rather than holding a shared secret.
 package auth
 
 import (
@@ -20,9 +17,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// KeySet fetches and caches a remote JWKS and exposes a jwt.Keyfunc that
-// resolves the verification key by `kid`, refreshing on an unknown key so key
-// rotation is tolerated without a restart.
 type KeySet struct {
 	url        string
 	http       *http.Client
@@ -109,7 +103,6 @@ func (ks *KeySet) fetch() (map[string]crypto.PublicKey, error) {
 		if key.Kid == "" {
 			continue
 		}
-		// Skip keys we can't represent rather than failing the whole set.
 		if public, err := key.publicKey(); err == nil {
 			keys[key.Kid] = public
 		}
@@ -121,7 +114,6 @@ func (ks *KeySet) fetch() (map[string]crypto.PublicKey, error) {
 	return keys, nil
 }
 
-// jwk is the subset of JSON Web Key fields needed to build a public key.
 type jwk struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`

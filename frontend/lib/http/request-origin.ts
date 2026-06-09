@@ -1,13 +1,5 @@
-/**
- * Resolves the browser-facing origin from request headers. Behind Docker
- * (the Next standalone server binds to HOSTNAME=0.0.0.0) or a proxy, the host in
- * `request.url` is the internal bind address, so any redirect built from it would
- * send the browser to an unreachable `0.0.0.0`. The forwarded/Host header carries
- * the address the browser actually used.
- *
- * Accepts anything with `headers`/`url`, so it works for both the Web `Request`
- * in route handlers and `NextRequest` in middleware.
- */
+// request.url holds the internal bind address behind Docker/proxies, so prefer
+// forwarded headers to build redirects the browser can actually reach.
 export function requestOrigin(request: { headers: Headers; url: string }): string {
   const forwardedHost = request.headers.get("x-forwarded-host");
   const host = forwardedHost ?? request.headers.get("host");

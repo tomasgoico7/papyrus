@@ -10,12 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class AnalysisError(Exception):
-    """Raised when the model call fails or returns something unusable."""
+    pass
 
 
 def verdict_for(score: int) -> Verdict:
-    """Map a 0-100 score onto a coarse verdict. Kept deterministic and separate
-    from the model so the band thresholds live in one auditable place."""
     if score >= 75:
         return "strong"
     if score >= 50:
@@ -24,12 +22,6 @@ def verdict_for(score: int) -> Verdict:
 
 
 class CVAnalyzer:
-    """Runs a CV/job-posting pair through the LLM and shapes the result.
-
-    The model chain is injected, which keeps the LLM provider out of the unit
-    tests and makes the analysis logic verifiable in isolation.
-    """
-
     def __init__(self, chain: Runnable) -> None:
         self._chain = chain
 
@@ -41,11 +33,9 @@ class CVAnalyzer:
         model = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
-            temperature=0.2,
-            # REST avoids gRPC egress that hangs on some hosts (e.g. Render); the
-            # timeout makes a stuck call fail fast instead of holding the worker.
-            transport="rest",
-            timeout=45,
+            temperature=settings.gemini_temperature,
+            transport="rest",  # avoids gRPC egress issues on some hosts
+            timeout=settings.gemini_timeout,
         )
         chain = build_prompt() | model.with_structured_output(LLMAnalysis)
         return cls(chain)

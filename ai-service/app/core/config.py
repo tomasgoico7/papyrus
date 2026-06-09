@@ -4,12 +4,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime configuration sourced from the environment.
-
-    A missing `GEMINI_API_KEY` raises at construction, so the service refuses to
-    start in a state where the first request would fail.
-    """
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -19,11 +13,12 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
     gemini_model: str = "gemini-2.5-flash"
+    gemini_temperature: float = 0.2
+    gemini_timeout: int = 45
     environment: str = "development"
     log_level: str = "INFO"
     max_cv_chars: int = 20_000
-    # Shared secret the gateway must present. Empty disables the check (local dev).
-    internal_api_key: str = ""
+    internal_api_key: str = ""  # empty disables auth check (local dev)
 
     @property
     def is_production(self) -> bool:

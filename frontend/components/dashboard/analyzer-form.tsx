@@ -5,9 +5,8 @@ import { ArrowRight } from "lucide-react";
 import { CvDropzone } from "@/components/dashboard/cv-dropzone";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { MIN_OFFER_LENGTH } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
-
-const MIN_OFFER_LENGTH = 40;
 
 interface AnalyzerFormProps {
   cvFile: File | null;

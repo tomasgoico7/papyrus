@@ -22,8 +22,6 @@ interface AnalysisRow {
   cvs: { storage_path: string | null } | null;
 }
 
-// The trailing embed pulls the linked CV's storage path in the same round trip
-// so history rows can offer a download without a second query.
 const SELECT =
   "id, job_title, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, cvs ( storage_path )";
 
@@ -58,8 +56,6 @@ export async function listAnalyses(
     throw new Error(`Failed to load analyses: ${error.message}`);
   }
 
-  // The untyped client infers the to-one `cvs` embed as an array; at runtime a
-  // foreign-key embed is a single object, which `AnalysisRow` reflects.
   return (data as unknown as AnalysisRow[]).map(toRecord);
 }
 

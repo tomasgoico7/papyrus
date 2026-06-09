@@ -1,6 +1,3 @@
-// Package router wires configuration, middleware and handlers into a ready-to-
-// serve gin engine. Keeping assembly here keeps main.go focused on process
-// lifecycle.
 package router
 
 import (
@@ -24,8 +21,6 @@ func New(cfg *config.Config) *gin.Engine {
 	engine.MaxMultipartMemory = cfg.MaxUploadBytes
 	engine.Use(gin.Recovery(), middleware.CORS(cfg.AllowedOrigins))
 
-	// The context deadline set per request governs upstream cancellation, so the
-	// shared client itself is left without a blanket timeout.
 	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, cfg.AIServiceToken, &http.Client{})
 	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	keySet := auth.NewKeySet(cfg.JWKSURL)

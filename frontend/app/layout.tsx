@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "Papyrus",
   description:
     "Upload your resume and a job posting. Papyrus scores the fit, names the gaps, and tells you exactly how to close them.",
-  metadataBase: new URL("https://papyrus.app"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
   openGraph: {
     title: "Papyrus",
     description: "Match your CV to any role.",

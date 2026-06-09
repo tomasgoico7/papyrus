@@ -19,8 +19,7 @@ import (
 
 const (
 	minJobOfferLength = 40
-	// Headroom over the file limit for the job-posting text and multipart framing.
-	multipartOverhead = 1 << 20
+	multipartOverhead = 1 << 20 // headroom for job-posting text and multipart framing
 )
 
 type AnalyzeHandler struct {
@@ -98,9 +97,6 @@ func (h *AnalyzeHandler) Handle(c *gin.Context) {
 	})
 }
 
-// respondUpstream translates a failure from the AI service into a client-facing
-// error: the caller's own 4xx mistakes are passed through, while our failures
-// (timeouts, network errors, 5xx) collapse into a 502/504.
 func (h *AnalyzeHandler) respondUpstream(c *gin.Context, err error) {
 	var upstream *services.UpstreamError
 	if errors.As(err, &upstream) && upstream.IsClientError() {

@@ -10,8 +10,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config holds every runtime setting the gateway needs. It is built once at
-// startup and treated as immutable for the lifetime of the process.
 type Config struct {
 	Port           string
 	Environment    string
@@ -28,9 +26,6 @@ func (c Config) IsProduction() bool {
 	return c.Environment == "production"
 }
 
-// Load reads configuration from the environment, applying defaults for optional
-// values and failing fast when a required value is missing or malformed. A
-// `.env` file is loaded when present to streamline local development.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 

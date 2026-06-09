@@ -11,8 +11,6 @@ import (
 	"github.com/papyrus/gateway/internal/httpx"
 )
 
-// RateLimiter enforces a per-user request budget using a token bucket per key.
-// Idle buckets are evicted periodically so memory stays bounded under churn.
 type RateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor

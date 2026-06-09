@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-/**
- * Public configuration is validated at module load so a missing or malformed
- * value fails loudly at startup instead of surfacing as a cryptic runtime error
- * deep inside an auth or fetch call.
- */
 const schema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
