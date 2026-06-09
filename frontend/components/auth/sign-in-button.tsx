@@ -26,6 +26,9 @@ export function SignInButton({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        // Always show Google's account chooser instead of silently reusing the
+        // browser's active session.
+        queryParams: { prompt: "select_account" },
       },
     });
 
