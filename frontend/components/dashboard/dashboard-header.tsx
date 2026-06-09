@@ -18,11 +18,8 @@ export function DashboardHeader({ user }: { user: AuthenticatedUser }) {
         <div className="flex items-center gap-2">
           <LanguageToggle />
           <ThemeToggle />
-          <div className="ml-1 flex items-center gap-2.5 border-l border-line pl-3">
+          <div className="ml-1 flex items-center gap-2 border-l border-line pl-3">
             <Avatar user={user} />
-            <span className="hidden text-sm text-ink-muted sm:block">
-              {user.fullName ?? user.email}
-            </span>
             <SignOutButton />
           </div>
         </div>
