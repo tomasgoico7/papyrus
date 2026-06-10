@@ -1,6 +1,7 @@
 import logging
 
 from langchain_core.runnables import Runnable
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings
 from app.schemas.analysis import AnalysisResult, LLMAnalysis, Verdict
@@ -34,6 +35,7 @@ class CVAnalyzer:
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=settings.gemini_temperature,
+            transport="rest",  # the async gRPC/REST clients hang on some hosts
             timeout=settings.gemini_timeout,
         )
         chain = build_prompt() | model.with_structured_output(LLMAnalysis)
@@ -47,12 +49,13 @@ class CVAnalyzer:
         job_title: str | None,
     ) -> AnalysisResult:
         try:
-            raw = await self._chain.ainvoke(
+            raw = await run_in_threadpool(
+                self._chain.invoke,
                 {
                     "cv": cv_text,
                     "job_offer": job_offer,
                     "job_title": job_title or "Not specified",
-                }
+                },
             )
         except Exception as exc:  # noqa: BLE001 — provider/parse failures collapse here
             logger.exception("LLM analysis failed")
