@@ -212,7 +212,7 @@ export function Workspace({ userId }: { userId: string }) {
 
   return (
     <div className="mx-auto max-w-content px-6 py-10 lg:py-14">
-      <div className="mb-10">
+      <div className="mb-10 hidden lg:block">
         <h1 className="text-2xl font-semibold tracking-tight">
           {t.dashboard.title}
         </h1>

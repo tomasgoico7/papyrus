@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -25,6 +25,11 @@ export function HistoryPanel({
 }: HistoryPanelProps) {
   const { t } = useI18n();
   const [pendingDelete, setPendingDelete] = useState<AnalysisRecord | null>(null);
+  // On mobile the list sits below a tall form, so it stays collapsed by default
+  // to avoid a long scroll. Desktop always shows it (the toggle is mobile-only).
+  const [expanded, setExpanded] = useState(false);
+
+  const hasRecords = !loading && records.length > 0;
 
   function confirmDelete() {
     if (pendingDelete) {
@@ -35,16 +40,39 @@ export function HistoryPanel({
 
   return (
     <section>
-      <h2 className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">
-        {t.dashboard.historyTitle}
-      </h2>
+      {hasRecords ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          className="flex w-full items-center justify-between gap-2 lg:cursor-default"
+        >
+          <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">
+            {t.dashboard.historyTitle}
+            <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] tabular-nums leading-none">
+              {records.length}
+            </span>
+          </span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-ink-faint transition-transform lg:hidden",
+              expanded && "rotate-180",
+            )}
+            aria-hidden
+          />
+        </button>
+      ) : (
+        <h2 className="text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">
+          {t.dashboard.historyTitle}
+        </h2>
+      )}
 
       {loading ? (
         <p className="mt-4 text-sm text-ink-faint">{t.dashboard.historyLoading}</p>
       ) : records.length === 0 ? (
         <p className="mt-4 text-sm text-ink-faint">{t.dashboard.historyEmpty}</p>
       ) : (
-        <ul className="mt-4 space-y-1">
+        <ul className={cn("mt-4 space-y-1", !expanded && "hidden lg:block")}>
           {records.map((record) => (
             <li key={record.id} className="group flex items-center gap-1">
               <button
