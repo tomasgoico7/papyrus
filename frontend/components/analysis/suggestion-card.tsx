@@ -16,7 +16,7 @@ export function SuggestionCard({ suggestion }: { suggestion: Suggestion }) {
   return (
     <li className="rounded-2xl border border-line bg-surface p-5">
       <div className="flex items-start justify-between gap-4">
-        <h4 className="font-medium leading-snug">{suggestion.title[locale]}</h4>
+        <h4 className="min-w-0 font-medium leading-snug">{suggestion.title[locale]}</h4>
         <span
           className={cn(
             "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium",

@@ -21,8 +21,8 @@ export function SkillList({ title, skills, tone, emptyHint }: SkillListProps) {
         <div className="mt-3 flex flex-wrap gap-2">
           {skills.map((skill) => (
             <span key={skill} className="chip border-line text-ink-muted">
-              <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-              {skill}
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+              <span className="min-w-0 break-words">{skill}</span>
             </span>
           ))}
         </div>
