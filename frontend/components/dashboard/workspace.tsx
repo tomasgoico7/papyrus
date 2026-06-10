@@ -197,7 +197,7 @@ export function Workspace({ userId }: { userId: string }) {
       </div>
 
       <div className="grid gap-10 lg:grid-cols-[380px_1fr]">
-        <div className="space-y-10">
+        <div className="min-w-0 space-y-10">
           <AnalyzerForm
             cvFile={cvFile}
             onCvChange={setCvFile}
@@ -219,7 +219,7 @@ export function Workspace({ userId }: { userId: string }) {
           />
         </div>
 
-        <div>
+        <div className="min-w-0">
           {status === "analyzing" ? (
             <AnalyzingState />
           ) : status === "error" ? (
