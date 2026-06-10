@@ -60,6 +60,19 @@ export interface Dictionary {
     errorGeneric: string;
     sessionExpired: string;
     cvNotice: string;
+    errors: {
+      invalidRequest: string;
+      invalidJobOffer: string;
+      cvRequired: string;
+      unsupportedMediaType: string;
+      payloadTooLarge: string;
+      uploadError: string;
+      unreadableCv: string;
+      analysisFailed: string;
+      upstreamTimeout: string;
+      upstreamUnavailable: string;
+      networkError: string;
+    };
   };
   analysis: {
     fit: string;
@@ -158,6 +171,19 @@ const en: Dictionary = {
     sessionExpired: "Your session has expired. Please sign in again.",
     cvNotice:
       "We couldn’t save your CV, so it won’t be downloadable from your history.",
+    errors: {
+      invalidRequest: "The request was malformed or missing required fields.",
+      invalidJobOffer: "The job posting is too short to analyze.",
+      cvRequired: "A CV file is required.",
+      unsupportedMediaType: "Only PDF files are supported.",
+      payloadTooLarge: "The CV exceeds the {mb} MB limit.",
+      uploadError: "The CV file could not be read.",
+      unreadableCv: "The CV is not a readable PDF.",
+      analysisFailed: "The analysis could not be completed.",
+      upstreamTimeout: "The analysis took too long. Please try again.",
+      upstreamUnavailable: "The analysis service is temporarily unavailable.",
+      networkError: "Couldn't reach the analysis service. Check your connection and try again.",
+    },
   },
   analysis: {
     fit: "Fit",
@@ -256,6 +282,19 @@ const es: Dictionary = {
     sessionExpired: "Tu sesión expiró. Iniciá sesión de nuevo.",
     cvNotice:
       "No pudimos guardar tu CV, así que no vas a poder descargarlo desde el historial.",
+    errors: {
+      invalidRequest: "La solicitud es inválida o le faltan campos obligatorios.",
+      invalidJobOffer: "La oferta de trabajo es muy corta para analizarla.",
+      cvRequired: "Se requiere un archivo de CV.",
+      unsupportedMediaType: "Solo se admiten archivos PDF.",
+      payloadTooLarge: "El CV supera el límite de {mb} MB.",
+      uploadError: "No se pudo leer el archivo del CV.",
+      unreadableCv: "El CV no es un PDF legible.",
+      analysisFailed: "No se pudo completar el análisis.",
+      upstreamTimeout: "El análisis tardó demasiado. Probá de nuevo.",
+      upstreamUnavailable: "El servicio de análisis no está disponible en este momento.",
+      networkError: "No pudimos conectar con el servicio de análisis. Revisá tu conexión y probá de nuevo.",
+    },
   },
   analysis: {
     fit: "Ajuste",

@@ -1,4 +1,6 @@
 import { env } from "@/lib/env";
+import { MAX_UPLOAD_MB } from "@/lib/constants";
+import type { Dictionary } from "@/lib/i18n/dictionaries";
 import type { AnalysisResult } from "@/lib/types";
 
 export interface AnalyzeInput {
@@ -59,4 +61,31 @@ export async function requestAnalysis({
   }
 
   return (await response.json()) as AnalysisResult;
+}
+
+const ERROR_CODE_KEYS: Record<string, keyof Dictionary["result"]["errors"]> = {
+  invalid_request: "invalidRequest",
+  invalid_job_offer: "invalidJobOffer",
+  cv_required: "cvRequired",
+  unsupported_media_type: "unsupportedMediaType",
+  payload_too_large: "payloadTooLarge",
+  upload_error: "uploadError",
+  unreadable_cv: "unreadableCv",
+  analysis_failed: "analysisFailed",
+  upstream_timeout: "upstreamTimeout",
+  upstream_unavailable: "upstreamUnavailable",
+  network_error: "networkError",
+};
+
+export function localizeGatewayError(
+  error: GatewayError,
+  t: Dictionary,
+  maxUploadMb: number = MAX_UPLOAD_MB,
+): string {
+  if (error.code === "unauthorized") return t.result.sessionExpired;
+
+  const key = ERROR_CODE_KEYS[error.code];
+  if (!key) return t.result.errorGeneric;
+
+  return t.result.errors[key].replace("{mb}", String(maxUploadMb));
 }

@@ -19,7 +19,7 @@ import {
   listAnalyses,
   saveAnalysis,
 } from "@/lib/analyses/repository";
-import { GatewayError, requestAnalysis } from "@/lib/api/gateway";
+import { GatewayError, localizeGatewayError, requestAnalysis } from "@/lib/api/gateway";
 import { createCvDownloadUrl, removeStoredCv, uploadCv } from "@/lib/cvs/repository";
 import { MAX_UPLOAD_MB } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
@@ -132,7 +132,9 @@ export function Workspace({ userId }: { userId: string }) {
     } catch (error) {
       setStatus("error");
       setErrorMessage(
-        error instanceof GatewayError ? error.message : t.result.errorGeneric,
+        error instanceof GatewayError
+          ? localizeGatewayError(error, t, MAX_UPLOAD_MB)
+          : t.result.errorGeneric,
       );
     }
   }
