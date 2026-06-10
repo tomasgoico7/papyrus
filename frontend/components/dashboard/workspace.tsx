@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -25,8 +26,19 @@ import { MAX_UPLOAD_MB } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
 import { createClient } from "@/lib/supabase/client";
 import type { AnalysisRecord } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type Status = "idle" | "analyzing" | "ready" | "error";
+
+// On mobile the form and the result share one column, so we treat them as two
+// screens and surface only one at a time. Desktop always shows both.
+type MobileView = "form" | "result";
+
+function scrollToTopOnMobile() {
+  if (typeof window === "undefined") return;
+  if (window.matchMedia("(min-width: 1024px)").matches) return;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
 interface ActiveAnalysis {
   id: string;
@@ -60,6 +72,7 @@ export function Workspace({ userId }: { userId: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cvNotice, setCvNotice] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveAnalysis | null>(null);
+  const [mobileView, setMobileView] = useState<MobileView>("form");
 
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -88,6 +101,8 @@ export function Workspace({ userId }: { userId: string }) {
     setErrorMessage(null);
     setCvNotice(null);
     setActive(null);
+    setMobileView("result");
+    scrollToTopOnMobile();
 
     try {
       const {
@@ -147,6 +162,13 @@ export function Workspace({ userId }: { userId: string }) {
       cvStoragePath: record.cvStoragePath,
     });
     setStatus("ready");
+    setMobileView("result");
+    scrollToTopOnMobile();
+  }
+
+  function backToForm() {
+    setMobileView("form");
+    scrollToTopOnMobile();
   }
 
   async function downloadCv(storagePath: string) {
@@ -163,6 +185,7 @@ export function Workspace({ userId }: { userId: string }) {
     if (active?.id === record.id) {
       setActive(null);
       setStatus("idle");
+      setMobileView("form");
     }
 
     try {
@@ -197,7 +220,12 @@ export function Workspace({ userId }: { userId: string }) {
       </div>
 
       <div className="grid gap-10 lg:grid-cols-[380px_1fr]">
-        <div className="min-w-0 space-y-10">
+        <div
+          className={cn(
+            "min-w-0 space-y-10",
+            mobileView === "result" && "hidden lg:block",
+          )}
+        >
           <AnalyzerForm
             cvFile={cvFile}
             onCvChange={setCvFile}
@@ -219,7 +247,20 @@ export function Workspace({ userId }: { userId: string }) {
           />
         </div>
 
-        <div className="min-w-0">
+        <div
+          className={cn(
+            "min-w-0",
+            mobileView === "form" && "hidden lg:block",
+          )}
+        >
+          <button
+            type="button"
+            onClick={backToForm}
+            className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink lg:hidden"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            {t.result.back}
+          </button>
           {status === "analyzing" ? (
             <AnalyzingState />
           ) : status === "error" ? (

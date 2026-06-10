@@ -60,6 +60,7 @@ export interface Dictionary {
     errorGeneric: string;
     sessionExpired: string;
     cvNotice: string;
+    back: string;
     errors: {
       invalidRequest: string;
       invalidJobOffer: string;
@@ -171,6 +172,7 @@ const en: Dictionary = {
     sessionExpired: "Your session has expired. Please sign in again.",
     cvNotice:
       "We couldn’t save your CV, so it won’t be downloadable from your history.",
+    back: "Back",
     errors: {
       invalidRequest: "The request was malformed or missing required fields.",
       invalidJobOffer: "The job posting is too short to analyze.",
@@ -282,6 +284,7 @@ const es: Dictionary = {
     sessionExpired: "Tu sesión expiró. Iniciá sesión de nuevo.",
     cvNotice:
       "No pudimos guardar tu CV, así que no vas a poder descargarlo desde el historial.",
+    back: "Volver",
     errors: {
       invalidRequest: "La solicitud es inválida o le faltan campos obligatorios.",
       invalidJobOffer: "La oferta de trabajo es muy corta para analizarla.",
