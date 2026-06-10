@@ -34,7 +34,6 @@ class CVAnalyzer:
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=settings.gemini_temperature,
-            transport="rest",  # avoids gRPC egress issues on some hosts
             timeout=settings.gemini_timeout,
         )
         chain = build_prompt() | model.with_structured_output(LLMAnalysis)
