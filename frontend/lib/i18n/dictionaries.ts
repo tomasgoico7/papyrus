@@ -39,6 +39,8 @@ export interface Dictionary {
     errPdfOnly: string;
     errTooLarge: string;
     removeFile: string;
+    reuseCvPlaceholder: string;
+    reusedCvHint: string;
     historyTitle: string;
     historyEmpty: string;
     historyLoading: string;
@@ -150,6 +152,8 @@ const en: Dictionary = {
     errPdfOnly: "Only PDF files are supported.",
     errTooLarge: "The file exceeds the {mb} MB limit.",
     removeFile: "Remove file",
+    reuseCvPlaceholder: "Or reuse a previous CV…",
+    reusedCvHint: "Reusing a saved CV",
     historyTitle: "History",
     historyEmpty: "Your past analyses will appear here.",
     historyLoading: "Loading…",
@@ -265,6 +269,8 @@ const es: Dictionary = {
     errPdfOnly: "Solo se admiten archivos PDF.",
     errTooLarge: "El archivo supera el límite de {mb} MB.",
     removeFile: "Quitar archivo",
+    reuseCvPlaceholder: "O reusá un CV anterior…",
+    reusedCvHint: "Reutilizando un CV guardado",
     historyTitle: "Historial",
     historyEmpty: "Tus análisis anteriores van a aparecer acá.",
     historyLoading: "Cargando…",

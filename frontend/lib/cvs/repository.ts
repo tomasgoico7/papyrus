@@ -8,6 +8,16 @@ export interface StoredCv {
   storagePath: string;
 }
 
+/** A previously uploaded CV, surfaced so it can be reused for a new analysis. */
+export interface StoredCvSummary {
+  id: string;
+  filename: string;
+  storagePath: string;
+  createdAt: string;
+}
+
+const REUSABLE_CV_LIMIT = 20;
+
 export async function uploadCv(
   supabase: SupabaseClient,
   userId: string,
@@ -43,6 +53,63 @@ export async function uploadCv(
   }
 
   return { id: data.id as string, storagePath: data.storage_path as string };
+}
+
+interface CvRow {
+  id: string;
+  filename: string;
+  storage_path: string;
+  created_at: string;
+}
+
+/**
+ * Lists the user's reusable CVs, most recent first and de-duplicated by
+ * filename — re-running an analysis uploads a fresh copy, so the same CV often
+ * appears many times and the picker would otherwise be noisy.
+ */
+export async function listCvs(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<StoredCvSummary[]> {
+  const { data, error } = await supabase
+    .from("cvs")
+    .select("id, filename, storage_path, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    throw new Error(`Failed to load CVs: ${error.message}`);
+  }
+
+  const seen = new Set<string>();
+  const unique: StoredCvSummary[] = [];
+  for (const row of data as CvRow[]) {
+    if (seen.has(row.filename)) continue;
+    seen.add(row.filename);
+    unique.push({
+      id: row.id,
+      filename: row.filename,
+      storagePath: row.storage_path,
+      createdAt: row.created_at,
+    });
+    if (unique.length >= REUSABLE_CV_LIMIT) break;
+  }
+  return unique;
+}
+
+/** Downloads a stored CV so it can be re-submitted to the analysis endpoint. */
+export async function downloadStoredCv(
+  supabase: SupabaseClient,
+  storagePath: string,
+): Promise<Blob> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .download(storagePath);
+  if (error || !data) {
+    throw new Error(
+      `Failed to download CV: ${error?.message ?? "unknown error"}`,
+    );
+  }
+  return data;
 }
 
 export async function removeStoredCv(

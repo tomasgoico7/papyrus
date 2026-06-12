@@ -21,7 +21,14 @@ import {
   saveAnalysis,
 } from "@/lib/analyses/repository";
 import { GatewayError, localizeGatewayError, requestAnalysis } from "@/lib/api/gateway";
-import { createCvDownloadUrl, removeStoredCv, uploadCv } from "@/lib/cvs/repository";
+import {
+  createCvDownloadUrl,
+  downloadStoredCv,
+  listCvs,
+  removeStoredCv,
+  uploadCv,
+  type StoredCvSummary,
+} from "@/lib/cvs/repository";
 import { MAX_UPLOAD_MB } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
 import { createClient } from "@/lib/supabase/client";
@@ -65,6 +72,8 @@ export function Workspace({ userId }: { userId: string }) {
   const supabase = useMemo(() => createClient(), []);
 
   const [cvFile, setCvFile] = useState<File | null>(null);
+  const [selectedCv, setSelectedCv] = useState<StoredCvSummary | null>(null);
+  const [storedCvs, setStoredCvs] = useState<StoredCvSummary[]>([]);
   const [jobTitle, setJobTitle] = useState("");
   const [jobOffer, setJobOffer] = useState("");
 
@@ -94,8 +103,34 @@ export function Workspace({ userId }: { userId: string }) {
     };
   }, [supabase, userId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    listCvs(supabase, userId)
+      .then((cvs) => {
+        if (!cancelled) setStoredCvs(cvs);
+      })
+      .catch((error) => {
+        if (!cancelled) console.error("Failed to load CVs:", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, userId]);
+
+  // Choosing a freshly uploaded file and reusing a saved one are mutually
+  // exclusive, so picking either clears the other.
+  function handleCvChange(file: File | null) {
+    setCvFile(file);
+    if (file) setSelectedCv(null);
+  }
+
+  function selectStoredCv(cv: StoredCvSummary) {
+    setSelectedCv(cv);
+    setCvFile(null);
+  }
+
   async function handleAnalyze() {
-    if (!cvFile) return;
+    if (!cvFile && !selectedCv) return;
 
     setStatus("analyzing");
     setErrorMessage(null);
@@ -112,22 +147,47 @@ export function Workspace({ userId }: { userId: string }) {
         throw new GatewayError(t.result.sessionExpired, "unauthorized", 401);
       }
 
+      // A reused CV is already in storage: pull the bytes back to re-analyze it
+      // and link the existing record instead of uploading a duplicate.
+      let cvForAnalysis: File;
+      let cvId: string | undefined;
+      if (selectedCv) {
+        const blob = await downloadStoredCv(supabase, selectedCv.storagePath);
+        cvForAnalysis = new File([blob], selectedCv.filename, {
+          type: "application/pdf",
+        });
+        cvId = selectedCv.id;
+      } else {
+        cvForAnalysis = cvFile!;
+      }
+
       const normalizedTitle = jobTitle.trim() || undefined;
       const result = await requestAnalysis({
-        cv: cvFile,
+        cv: cvForAnalysis,
         jobOffer,
         jobTitle: normalizedTitle,
         accessToken: session.access_token,
       });
 
-      // Persisting the CV is best-effort: a storage hiccup must not cost the
-      // user the analysis they just ran.
-      let cvId: string | undefined;
-      try {
-        cvId = (await uploadCv(supabase, userId, cvFile)).id;
-      } catch (storageError) {
-        console.error("CV upload failed; saving analysis without it:", storageError);
-        setCvNotice(t.result.cvNotice);
+      // Persisting a freshly uploaded CV is best-effort: a storage hiccup must
+      // not cost the user the analysis they just ran.
+      if (!cvId) {
+        try {
+          const stored = await uploadCv(supabase, userId, cvForAnalysis);
+          cvId = stored.id;
+          setStoredCvs((previous) => [
+            {
+              id: stored.id,
+              filename: cvForAnalysis.name,
+              storagePath: stored.storagePath,
+              createdAt: new Date().toISOString(),
+            },
+            ...previous.filter((cv) => cv.filename !== cvForAnalysis.name),
+          ]);
+        } catch (storageError) {
+          console.error("CV upload failed; saving analysis without it:", storageError);
+          setCvNotice(t.result.cvNotice);
+        }
       }
 
       const record = await saveAnalysis(supabase, userId, {
@@ -228,7 +288,11 @@ export function Workspace({ userId }: { userId: string }) {
         >
           <AnalyzerForm
             cvFile={cvFile}
-            onCvChange={setCvFile}
+            onCvChange={handleCvChange}
+            storedCvs={storedCvs}
+            selectedCv={selectedCv}
+            onSelectStoredCv={selectStoredCv}
+            onClearStoredCv={() => setSelectedCv(null)}
             jobTitle={jobTitle}
             onJobTitleChange={setJobTitle}
             jobOffer={jobOffer}

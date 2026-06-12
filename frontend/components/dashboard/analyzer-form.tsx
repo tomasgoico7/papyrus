@@ -1,16 +1,22 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, FileText, X } from "lucide-react";
 
 import { CvDropzone } from "@/components/dashboard/cv-dropzone";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import type { StoredCvSummary } from "@/lib/cvs/repository";
 import { MIN_OFFER_LENGTH } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
+import { formatDate } from "@/lib/utils";
 
 interface AnalyzerFormProps {
   cvFile: File | null;
   onCvChange: (file: File | null) => void;
+  storedCvs: StoredCvSummary[];
+  selectedCv: StoredCvSummary | null;
+  onSelectStoredCv: (cv: StoredCvSummary) => void;
+  onClearStoredCv: () => void;
   jobTitle: string;
   onJobTitleChange: (value: string) => void;
   jobOffer: string;
@@ -23,6 +29,10 @@ interface AnalyzerFormProps {
 export function AnalyzerForm({
   cvFile,
   onCvChange,
+  storedCvs,
+  selectedCv,
+  onSelectStoredCv,
+  onClearStoredCv,
   jobTitle,
   onJobTitleChange,
   jobOffer,
@@ -32,8 +42,9 @@ export function AnalyzerForm({
   maxUploadMb,
 }: AnalyzerFormProps) {
   const { t } = useI18n();
+  const hasCv = cvFile !== null || selectedCv !== null;
   const canSubmit =
-    !pending && cvFile !== null && jobOffer.trim().length >= MIN_OFFER_LENGTH;
+    !pending && hasCv && jobOffer.trim().length >= MIN_OFFER_LENGTH;
 
   return (
     <form
@@ -44,12 +55,53 @@ export function AnalyzerForm({
       className="space-y-6 rounded-3xl border border-line bg-surface p-6 shadow-subtle"
     >
       <Field label={t.dashboard.cvLabel}>
-        <CvDropzone
-          file={cvFile}
-          onSelect={onCvChange}
-          maxSizeMb={maxUploadMb}
-          disabled={pending}
-        />
+        {selectedCv ? (
+          <div className="flex items-center gap-3 rounded-xl border border-line bg-canvas px-4 py-3">
+            <FileText className="h-5 w-5 shrink-0 text-ink-faint" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{selectedCv.filename}</p>
+              <p className="text-xs text-ink-faint">{t.dashboard.reusedCvHint}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClearStoredCv}
+              disabled={pending}
+              aria-label={t.dashboard.removeFile}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-surface hover:text-ink"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        ) : (
+          <CvDropzone
+            file={cvFile}
+            onSelect={onCvChange}
+            maxSizeMb={maxUploadMb}
+            disabled={pending}
+          />
+        )}
+
+        {!hasCv && storedCvs.length > 0 ? (
+          <select
+            value=""
+            onChange={(event) => {
+              const cv = storedCvs.find((item) => item.id === event.target.value);
+              if (cv) onSelectStoredCv(cv);
+            }}
+            disabled={pending}
+            aria-label={t.dashboard.reuseCvPlaceholder}
+            className="mt-3 w-full rounded-xl border border-line bg-canvas px-4 py-2.5 text-sm text-ink-muted outline-none transition-colors focus:border-ink-faint"
+          >
+            <option value="" disabled>
+              {t.dashboard.reuseCvPlaceholder}
+            </option>
+            {storedCvs.map((cv) => (
+              <option key={cv.id} value={cv.id}>
+                {cv.filename} · {formatDate(cv.createdAt)}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </Field>
 
       <Field label={t.dashboard.roleLabel} hint={t.dashboard.optional}>
