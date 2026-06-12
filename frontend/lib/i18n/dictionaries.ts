@@ -42,6 +42,9 @@ export interface Dictionary {
     historyTitle: string;
     historyEmpty: string;
     historyLoading: string;
+    historySearch: string;
+    historyNoMatches: string;
+    filterAll: string;
     untitledRole: string;
     deleteAnalysis: string;
     confirmDelete: {
@@ -150,6 +153,9 @@ const en: Dictionary = {
     historyTitle: "History",
     historyEmpty: "Your past analyses will appear here.",
     historyLoading: "Loading…",
+    historySearch: "Search by role",
+    historyNoMatches: "No analyses match your filters.",
+    filterAll: "All fits",
     untitledRole: "Untitled role",
     deleteAnalysis: "Delete analysis",
     confirmDelete: {
@@ -262,6 +268,9 @@ const es: Dictionary = {
     historyTitle: "Historial",
     historyEmpty: "Tus análisis anteriores van a aparecer acá.",
     historyLoading: "Cargando…",
+    historySearch: "Buscar por puesto",
+    historyNoMatches: "Ningún análisis coincide con los filtros.",
+    filterAll: "Todas",
     untitledRole: "Puesto sin título",
     deleteAnalysis: "Eliminar análisis",
     confirmDelete: {
