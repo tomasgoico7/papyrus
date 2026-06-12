@@ -279,8 +279,8 @@ export function Workspace({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-content px-6 py-10 lg:flex lg:h-[calc(100vh_-_4rem)] lg:flex-col lg:overflow-hidden lg:py-8">
-      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:gap-8">
+    <div className="mx-auto w-full max-w-[110rem] px-6 py-10 lg:flex lg:h-[calc(100vh_-_4rem)] lg:flex-col lg:overflow-hidden lg:px-10 lg:py-8">
+      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:gap-10 xl:grid-cols-[330px_1fr]">
         {/* History: a persistent, self-scrolling sidebar on desktop; tucked
             under the form on mobile (hidden there while a result is shown). */}
         <aside
@@ -313,7 +313,7 @@ export function Workspace({ userId }: { userId: string }) {
           className="order-1 min-w-0 lg:order-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-10 lg:pr-1"
         >
           {view === "form" ? (
-            <div className="mx-auto w-full max-w-xl lg:pt-4">
+            <div className="mx-auto w-full max-w-xl lg:pt-4 xl:max-w-2xl">
               <div className="mb-8 hidden lg:block">
                 <h1 className="text-2xl font-semibold tracking-tight">
                   {t.dashboard.title}
@@ -354,7 +354,7 @@ export function Workspace({ userId }: { userId: string }) {
               ) : status === "error" ? (
                 <ErrorState message={errorMessage ?? t.result.errorGeneric} />
               ) : active ? (
-                <div className="mx-auto w-full max-w-3xl space-y-5 lg:pt-4">
+                <div className="mx-auto w-full max-w-3xl space-y-5 lg:pt-4 xl:max-w-4xl">
                   {cvNotice ? <CvNotice message={cvNotice} /> : null}
                   <AnalysisView data={active.data} onDownloadCv={downloadHandler} />
                 </div>
