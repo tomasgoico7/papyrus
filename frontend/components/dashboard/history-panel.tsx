@@ -128,14 +128,14 @@ export function HistoryPanel({
           {filtered.length === 0 ? (
             <p className="text-sm text-ink-faint">{t.dashboard.historyNoMatches}</p>
           ) : (
-            <ul className="space-y-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+            <ul className="scrollbar-thin space-y-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pb-8 lg:pr-2">
               {filtered.map((record) => (
                 <li key={record.id} className="group flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => onSelect(record)}
                     className={cn(
-                      "flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
+                      "flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-[background-color,border-color,transform] duration-200 active:scale-[0.99]",
                       record.id === activeId
                         ? "border-line bg-surface shadow-subtle"
                         : "border-transparent hover:bg-surface",

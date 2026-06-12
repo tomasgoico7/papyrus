@@ -279,20 +279,20 @@ export function Workspace({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="w-full px-6 py-10 lg:flex lg:h-full lg:flex-col lg:overflow-hidden lg:px-10 lg:py-8">
-      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:gap-10 xl:grid-cols-[330px_1fr]">
+    <div className="w-full px-6 py-10 lg:flex lg:h-full lg:flex-col lg:overflow-hidden lg:p-0">
+      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[360px_1fr] lg:gap-0 xl:grid-cols-[420px_1fr]">
         {/* History: a persistent, self-scrolling sidebar on desktop; tucked
             under the form on mobile (hidden there while a result is shown). */}
         <aside
           className={cn(
-            "order-2 min-w-0 lg:order-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:border-r lg:border-line lg:pr-8",
+            "order-2 min-w-0 lg:order-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:border-r lg:border-line lg:pl-10 lg:pr-8 lg:pt-8",
             view === "result" && "hidden",
           )}
         >
           <button
             type="button"
             onClick={showForm}
-            className="mb-6 hidden w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink-muted shadow-subtle transition-colors hover:text-ink lg:flex"
+            className="mb-6 hidden w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink-muted shadow-subtle transition-[color,border-color,transform] duration-200 hover:border-ink-faint hover:text-ink active:scale-[0.98] lg:flex"
           >
             <Plus className="h-4 w-4" aria-hidden />
             {t.dashboard.title}
@@ -310,10 +310,10 @@ export function Workspace({ userId }: { userId: string }) {
         {/* Main owns its own scroll on desktop so the sidebar stays put. */}
         <main
           ref={mainRef}
-          className="order-1 min-w-0 lg:order-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-10 lg:pr-1"
+          className="scrollbar-thin order-1 min-w-0 lg:order-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:px-10 lg:pb-16 lg:pt-8"
         >
           {view === "form" ? (
-            <div className="mx-auto w-full max-w-xl lg:pt-4 xl:max-w-2xl">
+            <div className="mx-auto w-full max-w-xl animate-fade-up lg:pt-4 xl:max-w-2xl">
               <div className="mb-8 hidden lg:block">
                 <h1 className="text-2xl font-semibold tracking-tight">
                   {t.dashboard.title}

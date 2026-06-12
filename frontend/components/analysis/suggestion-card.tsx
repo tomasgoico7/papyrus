@@ -14,7 +14,7 @@ export function SuggestionCard({ suggestion }: { suggestion: Suggestion }) {
   const { t, locale } = useI18n();
 
   return (
-    <li className="rounded-2xl border border-line bg-surface p-5">
+    <li className="rounded-2xl border border-line bg-surface p-5 transition-shadow duration-300 hover:shadow-subtle">
       <div className="flex items-start justify-between gap-4">
         <h4 className="min-w-0 font-medium leading-snug">{suggestion.title[locale]}</h4>
         <span
