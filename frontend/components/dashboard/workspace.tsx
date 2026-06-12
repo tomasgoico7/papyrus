@@ -280,7 +280,7 @@ export function Workspace({ userId }: { userId: string }) {
 
   return (
     <div className="w-full px-6 py-10 lg:flex lg:h-full lg:flex-col lg:overflow-hidden lg:p-0">
-      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[360px_1fr] lg:gap-0 xl:grid-cols-[420px_1fr]">
+      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[380px_1fr] lg:gap-0 xl:grid-cols-[480px_1fr]">
         {/* History: a persistent, self-scrolling sidebar on desktop; tucked
             under the form on mobile (hidden there while a result is shown). */}
         <aside
@@ -354,7 +354,7 @@ export function Workspace({ userId }: { userId: string }) {
               ) : status === "error" ? (
                 <ErrorState message={errorMessage ?? t.result.errorGeneric} />
               ) : active ? (
-                <div className="mx-auto w-full max-w-3xl space-y-5 lg:pt-4 xl:max-w-4xl">
+                <div className="mx-auto w-full max-w-3xl space-y-5 lg:pt-4 xl:max-w-6xl">
                   {cvNotice ? <CvNotice message={cvNotice} /> : null}
                   <AnalysisView data={active.data} onDownloadCv={downloadHandler} />
                 </div>
