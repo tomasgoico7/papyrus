@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AnalysisView,
@@ -42,12 +42,6 @@ type Status = "idle" | "analyzing" | "ready" | "error";
 // to the result effectively becomes a second screen.
 type View = "form" | "result";
 
-function scrollToTopOnMobile() {
-  if (typeof window === "undefined") return;
-  if (window.matchMedia("(min-width: 1024px)").matches) return;
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
 interface ActiveAnalysis {
   id: string;
   data: AnalysisViewData;
@@ -71,6 +65,19 @@ function toView(record: AnalysisRecord): AnalysisViewData {
 export function Workspace({ userId }: { userId: string }) {
   const { t } = useI18n();
   const supabase = useMemo(() => createClient(), []);
+  const mainRef = useRef<HTMLElement>(null);
+
+  // The main area owns its scroll on desktop and the page owns it on mobile, so
+  // switching analyses resets whichever one is active back to the top.
+  function resetScroll() {
+    mainRef.current?.scrollTo({ top: 0 });
+    if (
+      typeof window !== "undefined" &&
+      !window.matchMedia("(min-width: 1024px)").matches
+    ) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
 
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [selectedCv, setSelectedCv] = useState<StoredCvSummary | null>(null);
@@ -138,7 +145,7 @@ export function Workspace({ userId }: { userId: string }) {
     setCvNotice(null);
     setActive(null);
     setView("result");
-    scrollToTopOnMobile();
+    resetScroll();
 
     try {
       const {
@@ -224,12 +231,12 @@ export function Workspace({ userId }: { userId: string }) {
     });
     setStatus("ready");
     setView("result");
-    scrollToTopOnMobile();
+    resetScroll();
   }
 
   function showForm() {
     setView("form");
-    scrollToTopOnMobile();
+    resetScroll();
   }
 
   async function downloadCv(storagePath: string) {
@@ -272,22 +279,13 @@ export function Workspace({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-content px-6 py-10 lg:py-14">
-      <div className={cn("mb-10 hidden", view === "form" && "lg:block")}>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {t.dashboard.title}
-        </h1>
-        <p className="mt-1 text-sm text-ink-muted">{t.dashboard.subtitle}</p>
-      </div>
-
-      <div className="flex flex-col gap-10 lg:grid lg:grid-cols-[300px_1fr]">
-        {/* History: a persistent sidebar on desktop, tucked under the form on
-            mobile (and hidden there while a result is on screen). */}
-        {/* On desktop the sidebar pins to the viewport and the history scrolls
-            inside it, leaving the page scroll to the analysis on the right. */}
+    <div className="mx-auto max-w-content px-6 py-10 lg:flex lg:h-[calc(100vh_-_4rem)] lg:flex-col lg:overflow-hidden lg:py-8">
+      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
+        {/* History: a persistent, self-scrolling sidebar on desktop; tucked
+            under the form on mobile (hidden there while a result is shown). */}
         <aside
           className={cn(
-            "order-2 min-w-0 lg:order-1 lg:sticky lg:top-20 lg:flex lg:max-h-[calc(100vh_-_6rem)] lg:flex-col lg:self-start",
+            "order-2 min-w-0 lg:order-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col",
             view === "result" && "hidden",
           )}
         >
@@ -300,58 +298,72 @@ export function Workspace({ userId }: { userId: string }) {
             {t.dashboard.title}
           </button>
 
-          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-            <HistoryPanel
-              records={history}
-              activeId={active?.id ?? null}
-              onSelect={selectRecord}
-              onDelete={handleDelete}
-              loading={historyLoading}
-            />
-          </div>
+          <HistoryPanel
+            records={history}
+            activeId={active?.id ?? null}
+            onSelect={selectRecord}
+            onDelete={handleDelete}
+            loading={historyLoading}
+          />
         </aside>
 
-        <main className="order-1 min-w-0 lg:order-2">
-          {view === "result" ? (
-            <button
-              type="button"
-              onClick={showForm}
-              className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink lg:hidden"
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              {t.result.back}
-            </button>
-          ) : null}
-
+        {/* Main owns its own scroll on desktop so the sidebar stays put. */}
+        <main
+          ref={mainRef}
+          className="order-1 min-w-0 lg:order-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-10 lg:pr-1"
+        >
           {view === "form" ? (
-            <div className="max-w-xl">
-              <AnalyzerForm
-                cvFile={cvFile}
-                onCvChange={handleCvChange}
-                storedCvs={storedCvs}
-                selectedCv={selectedCv}
-                onSelectStoredCv={selectStoredCv}
-                onClearStoredCv={() => setSelectedCv(null)}
-                jobTitle={jobTitle}
-                onJobTitleChange={setJobTitle}
-                jobOffer={jobOffer}
-                onJobOfferChange={setJobOffer}
-                onSubmit={handleAnalyze}
-                pending={status === "analyzing"}
-                maxUploadMb={MAX_UPLOAD_MB}
-              />
-            </div>
-          ) : status === "analyzing" ? (
-            <AnalyzingState />
-          ) : status === "error" ? (
-            <ErrorState message={errorMessage ?? t.result.errorGeneric} />
-          ) : active ? (
-            <div className="space-y-5">
-              {cvNotice ? <CvNotice message={cvNotice} /> : null}
-              <AnalysisView data={active.data} onDownloadCv={downloadHandler} />
-            </div>
+            <>
+              <div className="mb-8 hidden lg:block">
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  {t.dashboard.title}
+                </h1>
+                <p className="mt-1 text-sm text-ink-muted">
+                  {t.dashboard.subtitle}
+                </p>
+              </div>
+              <div className="max-w-xl">
+                <AnalyzerForm
+                  cvFile={cvFile}
+                  onCvChange={handleCvChange}
+                  storedCvs={storedCvs}
+                  selectedCv={selectedCv}
+                  onSelectStoredCv={selectStoredCv}
+                  onClearStoredCv={() => setSelectedCv(null)}
+                  jobTitle={jobTitle}
+                  onJobTitleChange={setJobTitle}
+                  jobOffer={jobOffer}
+                  onJobOfferChange={setJobOffer}
+                  onSubmit={handleAnalyze}
+                  pending={status === "analyzing"}
+                  maxUploadMb={MAX_UPLOAD_MB}
+                />
+              </div>
+            </>
           ) : (
-            <EmptyState />
+            <>
+              <button
+                type="button"
+                onClick={showForm}
+                className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink lg:hidden"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden />
+                {t.result.back}
+              </button>
+
+              {status === "analyzing" ? (
+                <AnalyzingState />
+              ) : status === "error" ? (
+                <ErrorState message={errorMessage ?? t.result.errorGeneric} />
+              ) : active ? (
+                <div className="space-y-5">
+                  {cvNotice ? <CvNotice message={cvNotice} /> : null}
+                  <AnalysisView data={active.data} onDownloadCv={downloadHandler} />
+                </div>
+              ) : (
+                <EmptyState />
+              )}
+            </>
           )}
         </main>
       </div>

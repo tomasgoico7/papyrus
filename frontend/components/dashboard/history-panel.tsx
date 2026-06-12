@@ -56,13 +56,13 @@ export function HistoryPanel({
   }
 
   return (
-    <section>
+    <section className="lg:flex lg:h-full lg:min-h-0 lg:flex-col">
       {hasRecords ? (
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
-          className="flex w-full items-center justify-between gap-2 lg:cursor-default"
+          className="flex w-full shrink-0 items-center justify-between gap-2 lg:cursor-default"
         >
           <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-ink-faint">
             {t.dashboard.historyTitle}
@@ -89,8 +89,13 @@ export function HistoryPanel({
       ) : records.length === 0 ? (
         <p className="mt-4 text-sm text-ink-faint">{t.dashboard.historyEmpty}</p>
       ) : (
-        <div className={cn("mt-4 space-y-3", !expanded && "hidden lg:block")}>
-          <div className="flex gap-2">
+        <div
+          className={cn(
+            "mt-4 space-y-3 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col",
+            !expanded && "hidden",
+          )}
+        >
+          <div className="flex gap-2 lg:shrink-0">
             <div className="relative min-w-0 flex-1">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
@@ -123,7 +128,7 @@ export function HistoryPanel({
           {filtered.length === 0 ? (
             <p className="text-sm text-ink-faint">{t.dashboard.historyNoMatches}</p>
           ) : (
-            <ul className="space-y-1">
+            <ul className="space-y-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {filtered.map((record) => (
                 <li key={record.id} className="group flex items-center gap-1">
                   <button
