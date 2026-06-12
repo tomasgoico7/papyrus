@@ -1,5 +1,6 @@
 import {
   Document,
+  Font,
   Page,
   StyleSheet,
   Text,
@@ -26,6 +27,9 @@ export interface AnalysisPdfLabels {
   priority: Record<Priority, string>;
 }
 
+// Helvetica hyphenates long words by default, which mangles job titles.
+Font.registerHyphenationCallback((word) => [word]);
+
 // The palette mirrors the app's light theme; @react-pdf can't read CSS
 // variables, so the equivalents live here as hex.
 const COLOR = {
@@ -37,19 +41,27 @@ const COLOR = {
   accentSoft: "#ebf4ff",
   positive: "#38895f",
   warning: "#c2700f",
-  surface: "#ffffff",
+  warningSoft: "#fbf0e1",
+  neutralSoft: "#f2f0ec",
 };
 
-const VERDICT_COLOR: Record<Verdict, string> = {
-  strong: COLOR.accent,
-  moderate: COLOR.inkMuted,
-  weak: COLOR.warning,
+const VERDICT_STYLE: Record<Verdict, { color: string; background: string }> = {
+  strong: { color: COLOR.accent, background: COLOR.accentSoft },
+  moderate: { color: COLOR.inkMuted, background: COLOR.neutralSoft },
+  weak: { color: COLOR.warning, background: COLOR.warningSoft },
+};
+
+const PRIORITY_STYLE: Record<Priority, { color: string; background: string }> = {
+  high: { color: COLOR.warning, background: COLOR.warningSoft },
+  medium: { color: COLOR.accent, background: COLOR.accentSoft },
+  low: { color: COLOR.inkMuted, background: COLOR.neutralSoft },
 };
 
 const styles = StyleSheet.create({
   page: {
-    paddingVertical: 48,
-    paddingHorizontal: 48,
+    paddingTop: 48,
+    paddingBottom: 64,
+    paddingHorizontal: 52,
     fontFamily: "Helvetica",
     fontSize: 10,
     color: COLOR.ink,
@@ -59,81 +71,123 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+  },
+  headerLeft: { flex: 1, paddingRight: 28 },
+  verdictPill: {
+    alignSelf: "flex-start",
+    borderRadius: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    fontSize: 8.5,
+    fontFamily: "Helvetica-Bold",
+  },
+  title: {
+    marginTop: 10,
+    fontSize: 21,
+    fontFamily: "Helvetica-Bold",
+    lineHeight: 1.25,
+  },
+  meta: { marginTop: 6, fontSize: 9, color: COLOR.inkFaint },
+  scoreCard: {
+    width: 104,
+    alignItems: "center",
+    borderRadius: 14,
+    backgroundColor: COLOR.accentSoft,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  scoreCaption: {
+    fontSize: 7,
+    color: COLOR.inkMuted,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+  },
+  scoreRow: { flexDirection: "row", alignItems: "flex-end", marginTop: 4 },
+  scoreValue: {
+    fontSize: 30,
+    fontFamily: "Helvetica-Bold",
+    color: COLOR.accent,
+    lineHeight: 1,
+  },
+  scoreOutOf: { fontSize: 9, color: COLOR.inkFaint, marginBottom: 3, marginLeft: 2 },
+  divider: {
     borderBottomWidth: 1,
     borderBottomColor: COLOR.line,
-    paddingBottom: 18,
-    marginBottom: 22,
+    marginTop: 24,
+    marginBottom: 24,
   },
-  title: { fontSize: 20, fontFamily: "Helvetica-Bold", maxWidth: 320 },
-  meta: { fontSize: 9, color: COLOR.inkFaint, marginTop: 4 },
-  scoreBox: { alignItems: "flex-end" },
-  score: { fontSize: 34, fontFamily: "Helvetica-Bold", color: COLOR.accent },
-  verdict: { fontSize: 9, fontFamily: "Helvetica-Bold", marginTop: 2 },
-  fitCaption: {
-    fontSize: 7,
-    color: COLOR.inkFaint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  section: { marginBottom: 20 },
+  section: { marginBottom: 24 },
   sectionTitle: {
     fontSize: 8,
     fontFamily: "Helvetica-Bold",
     color: COLOR.inkFaint,
     textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 8,
+    letterSpacing: 1.2,
+    marginBottom: 10,
   },
-  summary: { fontSize: 11, color: COLOR.ink, lineHeight: 1.6 },
-  columns: { flexDirection: "row", gap: 24 },
+  summary: { fontSize: 11, lineHeight: 1.65 },
+  columns: { flexDirection: "row" },
   column: { flex: 1 },
-  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
-  pill: {
-    borderWidth: 1,
-    borderColor: COLOR.line,
-    borderRadius: 8,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    fontSize: 9,
-    color: COLOR.inkMuted,
+  columnGap: { width: 32 },
+  skillRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 6,
+    paddingRight: 8,
   },
+  skillDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginTop: 4.5,
+    marginRight: 7,
+  },
+  skillText: { flex: 1, fontSize: 9.5, color: COLOR.inkMuted, lineHeight: 1.45 },
   emptyHint: { fontSize: 9, color: COLOR.inkFaint },
   suggestion: {
     borderWidth: 1,
     borderColor: COLOR.line,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
   },
   suggestionHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    gap: 8,
   },
-  suggestionTitle: { fontSize: 11, fontFamily: "Helvetica-Bold", flex: 1 },
-  priorityTag: {
-    fontSize: 7,
+  suggestionTitle: {
+    flex: 1,
+    paddingRight: 12,
+    fontSize: 11,
     fontFamily: "Helvetica-Bold",
-    color: COLOR.accent,
-    backgroundColor: COLOR.accentSoft,
-    borderRadius: 6,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
+    lineHeight: 1.35,
   },
-  suggestionDetail: { fontSize: 9.5, color: COLOR.inkMuted, marginTop: 5 },
+  priorityTag: {
+    borderRadius: 8,
+    paddingVertical: 2.5,
+    paddingHorizontal: 7,
+    fontSize: 7.5,
+    fontFamily: "Helvetica-Bold",
+  },
+  suggestionDetail: {
+    marginTop: 6,
+    fontSize: 9.5,
+    color: COLOR.inkMuted,
+    lineHeight: 1.55,
+  },
   footer: {
     position: "absolute",
-    bottom: 28,
-    left: 48,
-    right: 48,
+    bottom: 30,
+    left: 52,
+    right: 52,
     flexDirection: "row",
     justifyContent: "space-between",
-    fontSize: 8,
-    color: COLOR.inkFaint,
     borderTopWidth: 1,
     borderTopColor: COLOR.line,
-    paddingTop: 8,
+    paddingTop: 9,
+    fontSize: 8,
+    color: COLOR.inkFaint,
   },
 });
 
@@ -148,10 +202,12 @@ function SkillColumn({
   title,
   skills,
   emptyHint,
+  dotColor,
 }: {
   title: string;
   skills: string[];
   emptyHint: string;
+  dotColor: string;
 }) {
   return (
     <View style={styles.column}>
@@ -159,13 +215,12 @@ function SkillColumn({
       {skills.length === 0 ? (
         <Text style={styles.emptyHint}>{emptyHint}</Text>
       ) : (
-        <View style={styles.pillRow}>
-          {skills.map((skill, index) => (
-            <Text key={index} style={styles.pill}>
-              {skill}
-            </Text>
-          ))}
-        </View>
+        skills.map((skill, index) => (
+          <View key={index} style={styles.skillRow} wrap={false}>
+            <View style={[styles.skillDot, { backgroundColor: dotColor }]} />
+            <Text style={styles.skillText}>{skill}</Text>
+          </View>
+        ))
       )}
     </View>
   );
@@ -174,27 +229,40 @@ function SkillColumn({
 function AnalysisPdfDoc({ data, locale, labels, dateText }: DocProps) {
   const title = data.jobTitle?.trim() || labels.defaultTitle;
   const metaParts = [data.cvFilename, dateText].filter(Boolean);
+  const verdictStyle = VERDICT_STYLE[data.verdict];
 
   return (
     <Document title={title} author="Papyrus">
       <Page size="A4" style={styles.page}>
-        <View style={styles.header}>
-          <View>
+        <View style={styles.header} wrap={false}>
+          <View style={styles.headerLeft}>
+            <Text
+              style={[
+                styles.verdictPill,
+                {
+                  color: verdictStyle.color,
+                  backgroundColor: verdictStyle.background,
+                },
+              ]}
+            >
+              {labels.verdict[data.verdict]}
+            </Text>
             <Text style={styles.title}>{title}</Text>
             {metaParts.length > 0 ? (
               <Text style={styles.meta}>{metaParts.join("  ·  ")}</Text>
             ) : null}
           </View>
-          <View style={styles.scoreBox}>
-            <Text style={styles.fitCaption}>{labels.fit}</Text>
-            <Text style={styles.score}>{data.score}</Text>
-            <Text
-              style={[styles.verdict, { color: VERDICT_COLOR[data.verdict] }]}
-            >
-              {labels.verdict[data.verdict]}
-            </Text>
+
+          <View style={styles.scoreCard}>
+            <Text style={styles.scoreCaption}>{labels.fit}</Text>
+            <View style={styles.scoreRow}>
+              <Text style={styles.scoreValue}>{data.score}</Text>
+              <Text style={styles.scoreOutOf}>/100</Text>
+            </View>
           </View>
         </View>
+
+        <View style={styles.divider} />
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{labels.summary}</Text>
@@ -206,32 +274,46 @@ function AnalysisPdfDoc({ data, locale, labels, dateText }: DocProps) {
             title={labels.matched}
             skills={data.matchedSkills[locale]}
             emptyHint={labels.matchedEmpty}
+            dotColor={COLOR.positive}
           />
+          <View style={styles.columnGap} />
           <SkillColumn
             title={labels.missing}
             skills={data.missingSkills[locale]}
             emptyHint={labels.missingEmpty}
+            dotColor={COLOR.warning}
           />
         </View>
 
         {data.suggestions.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{labels.improve}</Text>
-            {data.suggestions.map((suggestion, index) => (
-              <View key={index} style={styles.suggestion} wrap={false}>
-                <View style={styles.suggestionHead}>
-                  <Text style={styles.suggestionTitle}>
-                    {suggestion.title[locale]}
-                  </Text>
-                  <Text style={styles.priorityTag}>
-                    {labels.priority[suggestion.priority]}
+            {data.suggestions.map((suggestion, index) => {
+              const priorityStyle = PRIORITY_STYLE[suggestion.priority];
+              return (
+                <View key={index} style={styles.suggestion} wrap={false}>
+                  <View style={styles.suggestionHead}>
+                    <Text style={styles.suggestionTitle}>
+                      {suggestion.title[locale]}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.priorityTag,
+                        {
+                          color: priorityStyle.color,
+                          backgroundColor: priorityStyle.background,
+                        },
+                      ]}
+                    >
+                      {labels.priority[suggestion.priority]}
+                    </Text>
+                  </View>
+                  <Text style={styles.suggestionDetail}>
+                    {suggestion.detail[locale]}
                   </Text>
                 </View>
-                <Text style={styles.suggestionDetail}>
-                  {suggestion.detail[locale]}
-                </Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
         ) : null}
 
