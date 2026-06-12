@@ -1,14 +1,16 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { Download, FileDown } from "lucide-react";
+import { useState } from "react";
 
 import { ScoreRing } from "@/components/analysis/score-ring";
 import { SkillList } from "@/components/analysis/skill-list";
 import { SuggestionCard } from "@/components/analysis/suggestion-card";
 import { VerdictBadge } from "@/components/analysis/verdict-badge";
+import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n/context";
 import type { Localized, LocalizedList, Suggestion, Verdict } from "@/lib/types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, slugify } from "@/lib/utils";
 
 export interface AnalysisViewData {
   jobTitle?: string | null;
@@ -29,6 +31,41 @@ interface AnalysisViewProps {
 
 export function AnalysisView({ data, onDownloadCv }: AnalysisViewProps) {
   const { t, locale } = useI18n();
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+
+  async function handleDownloadPdf() {
+    setGeneratingPdf(true);
+    try {
+      // Loaded on demand: @react-pdf is heavy and only needed at export time.
+      const { downloadAnalysisPdf } = await import(
+        "@/components/analysis/analysis-pdf"
+      );
+      const title = data.jobTitle?.trim() || t.analysis.defaultTitle;
+      await downloadAnalysisPdf(
+        data,
+        locale,
+        {
+          fit: t.analysis.fit,
+          summary: t.analysis.summary,
+          matched: t.analysis.matched,
+          missing: t.analysis.missing,
+          improve: t.analysis.improve,
+          matchedEmpty: t.analysis.matchedEmpty,
+          missingEmpty: t.analysis.missingEmpty,
+          defaultTitle: t.analysis.defaultTitle,
+          tagline: t.analysis.pdfTagline,
+          verdict: t.analysis.verdict,
+          priority: t.analysis.priority,
+        },
+        data.createdAt ? formatDate(data.createdAt) : null,
+        `papyrus-${slugify(title)}.pdf`,
+      );
+    } catch (error) {
+      console.error("Failed to generate PDF:", error);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }
 
   return (
     <article className="animate-fade-up space-y-10">
@@ -42,16 +79,31 @@ export function AnalysisView({ data, onDownloadCv }: AnalysisViewProps) {
             {data.cvFilename}
             {data.createdAt ? ` · ${formatDate(data.createdAt)}` : null}
           </p>
-          {onDownloadCv ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
             <button
               type="button"
-              onClick={onDownloadCv}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent transition-opacity hover:opacity-70"
+              onClick={handleDownloadPdf}
+              disabled={generatingPdf}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent transition-opacity hover:opacity-70 disabled:opacity-50"
             >
-              <Download className="h-3.5 w-3.5" aria-hidden />
-              {t.analysis.downloadCv}
+              {generatingPdf ? (
+                <Spinner className="h-3.5 w-3.5" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {t.analysis.downloadPdf}
             </button>
-          ) : null}
+            {onDownloadCv ? (
+              <button
+                type="button"
+                onClick={onDownloadCv}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-accent transition-opacity hover:opacity-70"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden />
+                {t.analysis.downloadCv}
+              </button>
+            ) : null}
+          </div>
         </div>
         <ScoreRing score={data.score} size={128} caption={t.analysis.fit} />
       </header>

@@ -89,6 +89,8 @@ export interface Dictionary {
     matchedEmpty: string;
     missingEmpty: string;
     downloadCv: string;
+    downloadPdf: string;
+    pdfTagline: string;
     defaultTitle: string;
     verdict: { strong: string; moderate: string; weak: string };
     priority: { high: string; medium: string; low: string };
@@ -206,6 +208,8 @@ const en: Dictionary = {
     matchedEmpty: "No direct overlaps were found.",
     missingEmpty: "Nothing critical is missing.",
     downloadCv: "Download CV",
+    downloadPdf: "Download PDF",
+    pdfTagline: "Papyrus — CV-to-role fit",
     defaultTitle: "Compatibility analysis",
     verdict: { strong: "Strong fit", moderate: "Moderate fit", weak: "Weak fit" },
     priority: { high: "High impact", medium: "Worth doing", low: "Nice to have" },
@@ -323,6 +327,8 @@ const es: Dictionary = {
     matchedEmpty: "No se encontraron coincidencias directas.",
     missingEmpty: "No falta nada crítico.",
     downloadCv: "Descargar CV",
+    downloadPdf: "Descargar PDF",
+    pdfTagline: "Papyrus — compatibilidad CV-puesto",
     defaultTitle: "Análisis de compatibilidad",
     verdict: {
       strong: "Alta compatibilidad",
