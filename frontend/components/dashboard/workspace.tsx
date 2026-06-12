@@ -280,12 +280,12 @@ export function Workspace({ userId }: { userId: string }) {
 
   return (
     <div className="mx-auto max-w-content px-6 py-10 lg:flex lg:h-[calc(100vh_-_4rem)] lg:flex-col lg:overflow-hidden lg:py-8">
-      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr]">
+      <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:gap-8">
         {/* History: a persistent, self-scrolling sidebar on desktop; tucked
             under the form on mobile (hidden there while a result is shown). */}
         <aside
           className={cn(
-            "order-2 min-w-0 lg:order-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col",
+            "order-2 min-w-0 lg:order-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:border-r lg:border-line lg:pr-8",
             view === "result" && "hidden",
           )}
         >
@@ -313,7 +313,7 @@ export function Workspace({ userId }: { userId: string }) {
           className="order-1 min-w-0 lg:order-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-10 lg:pr-1"
         >
           {view === "form" ? (
-            <>
+            <div className="mx-auto w-full max-w-xl lg:pt-4">
               <div className="mb-8 hidden lg:block">
                 <h1 className="text-2xl font-semibold tracking-tight">
                   {t.dashboard.title}
@@ -322,24 +322,22 @@ export function Workspace({ userId }: { userId: string }) {
                   {t.dashboard.subtitle}
                 </p>
               </div>
-              <div className="max-w-xl">
-                <AnalyzerForm
-                  cvFile={cvFile}
-                  onCvChange={handleCvChange}
-                  storedCvs={storedCvs}
-                  selectedCv={selectedCv}
-                  onSelectStoredCv={selectStoredCv}
-                  onClearStoredCv={() => setSelectedCv(null)}
-                  jobTitle={jobTitle}
-                  onJobTitleChange={setJobTitle}
-                  jobOffer={jobOffer}
-                  onJobOfferChange={setJobOffer}
-                  onSubmit={handleAnalyze}
-                  pending={status === "analyzing"}
-                  maxUploadMb={MAX_UPLOAD_MB}
-                />
-              </div>
-            </>
+              <AnalyzerForm
+                cvFile={cvFile}
+                onCvChange={handleCvChange}
+                storedCvs={storedCvs}
+                selectedCv={selectedCv}
+                onSelectStoredCv={selectStoredCv}
+                onClearStoredCv={() => setSelectedCv(null)}
+                jobTitle={jobTitle}
+                onJobTitleChange={setJobTitle}
+                jobOffer={jobOffer}
+                onJobOfferChange={setJobOffer}
+                onSubmit={handleAnalyze}
+                pending={status === "analyzing"}
+                maxUploadMb={MAX_UPLOAD_MB}
+              />
+            </div>
           ) : (
             <>
               <button
@@ -356,7 +354,7 @@ export function Workspace({ userId }: { userId: string }) {
               ) : status === "error" ? (
                 <ErrorState message={errorMessage ?? t.result.errorGeneric} />
               ) : active ? (
-                <div className="space-y-5">
+                <div className="mx-auto w-full max-w-3xl space-y-5 lg:pt-4">
                   {cvNotice ? <CvNotice message={cvNotice} /> : null}
                   <AnalysisView data={active.data} onDownloadCv={downloadHandler} />
                 </div>
