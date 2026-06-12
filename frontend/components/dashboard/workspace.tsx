@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -37,9 +37,10 @@ import { cn } from "@/lib/utils";
 
 type Status = "idle" | "analyzing" | "ready" | "error";
 
-// On mobile the form and the result share one column, so we treat them as two
-// screens and surface only one at a time. Desktop always shows both.
-type MobileView = "form" | "result";
+// The main area swaps between the form and the result. On desktop the history
+// lives in a persistent sidebar; on mobile it sits under the form, so switching
+// to the result effectively becomes a second screen.
+type View = "form" | "result";
 
 function scrollToTopOnMobile() {
   if (typeof window === "undefined") return;
@@ -81,7 +82,7 @@ export function Workspace({ userId }: { userId: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cvNotice, setCvNotice] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveAnalysis | null>(null);
-  const [mobileView, setMobileView] = useState<MobileView>("form");
+  const [view, setView] = useState<View>("form");
 
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -136,7 +137,7 @@ export function Workspace({ userId }: { userId: string }) {
     setErrorMessage(null);
     setCvNotice(null);
     setActive(null);
-    setMobileView("result");
+    setView("result");
     scrollToTopOnMobile();
 
     try {
@@ -222,12 +223,12 @@ export function Workspace({ userId }: { userId: string }) {
       cvStoragePath: record.cvStoragePath,
     });
     setStatus("ready");
-    setMobileView("result");
+    setView("result");
     scrollToTopOnMobile();
   }
 
-  function backToForm() {
-    setMobileView("form");
+  function showForm() {
+    setView("form");
     scrollToTopOnMobile();
   }
 
@@ -245,7 +246,7 @@ export function Workspace({ userId }: { userId: string }) {
     if (active?.id === record.id) {
       setActive(null);
       setStatus("idle");
-      setMobileView("form");
+      setView("form");
     }
 
     try {
@@ -272,35 +273,30 @@ export function Workspace({ userId }: { userId: string }) {
 
   return (
     <div className="mx-auto max-w-content px-6 py-10 lg:py-14">
-      <div className="mb-10 hidden lg:block">
+      <div className={cn("mb-10 hidden", view === "form" && "lg:block")}>
         <h1 className="text-2xl font-semibold tracking-tight">
           {t.dashboard.title}
         </h1>
         <p className="mt-1 text-sm text-ink-muted">{t.dashboard.subtitle}</p>
       </div>
 
-      <div className="grid gap-10 lg:grid-cols-[380px_1fr]">
-        <div
+      <div className="flex flex-col gap-10 lg:grid lg:grid-cols-[300px_1fr]">
+        {/* History: a persistent sidebar on desktop, tucked under the form on
+            mobile (and hidden there while a result is on screen). */}
+        <aside
           className={cn(
-            "min-w-0 space-y-10",
-            mobileView === "result" && "hidden lg:block",
+            "order-2 min-w-0 lg:order-1 lg:sticky lg:top-20 lg:self-start",
+            view === "result" && "hidden lg:block",
           )}
         >
-          <AnalyzerForm
-            cvFile={cvFile}
-            onCvChange={handleCvChange}
-            storedCvs={storedCvs}
-            selectedCv={selectedCv}
-            onSelectStoredCv={selectStoredCv}
-            onClearStoredCv={() => setSelectedCv(null)}
-            jobTitle={jobTitle}
-            onJobTitleChange={setJobTitle}
-            jobOffer={jobOffer}
-            onJobOfferChange={setJobOffer}
-            onSubmit={handleAnalyze}
-            pending={status === "analyzing"}
-            maxUploadMb={MAX_UPLOAD_MB}
-          />
+          <button
+            type="button"
+            onClick={showForm}
+            className="mb-6 hidden w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink-muted shadow-subtle transition-colors hover:text-ink lg:flex"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            {t.dashboard.title}
+          </button>
 
           <HistoryPanel
             records={history}
@@ -309,23 +305,39 @@ export function Workspace({ userId }: { userId: string }) {
             onDelete={handleDelete}
             loading={historyLoading}
           />
-        </div>
+        </aside>
 
-        <div
-          className={cn(
-            "min-w-0",
-            mobileView === "form" && "hidden lg:block",
-          )}
-        >
-          <button
-            type="button"
-            onClick={backToForm}
-            className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink lg:hidden"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden />
-            {t.result.back}
-          </button>
-          {status === "analyzing" ? (
+        <main className="order-1 min-w-0 lg:order-2">
+          {view === "result" ? (
+            <button
+              type="button"
+              onClick={showForm}
+              className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink lg:hidden"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              {t.result.back}
+            </button>
+          ) : null}
+
+          {view === "form" ? (
+            <div className="max-w-xl">
+              <AnalyzerForm
+                cvFile={cvFile}
+                onCvChange={handleCvChange}
+                storedCvs={storedCvs}
+                selectedCv={selectedCv}
+                onSelectStoredCv={selectStoredCv}
+                onClearStoredCv={() => setSelectedCv(null)}
+                jobTitle={jobTitle}
+                onJobTitleChange={setJobTitle}
+                jobOffer={jobOffer}
+                onJobOfferChange={setJobOffer}
+                onSubmit={handleAnalyze}
+                pending={status === "analyzing"}
+                maxUploadMb={MAX_UPLOAD_MB}
+              />
+            </div>
+          ) : status === "analyzing" ? (
             <AnalyzingState />
           ) : status === "error" ? (
             <ErrorState message={errorMessage ?? t.result.errorGeneric} />
@@ -337,7 +349,7 @@ export function Workspace({ userId }: { userId: string }) {
           ) : (
             <EmptyState />
           )}
-        </div>
+        </main>
       </div>
     </div>
   );
