@@ -13,6 +13,8 @@ export function Avatar({
       <img
         src={user.avatarUrl}
         alt=""
+        // Google serves avatars with a 403 when a cross-site referrer is sent.
+        referrerPolicy="no-referrer"
         className={cn("h-8 w-8 rounded-full object-cover", className)}
       />
     );

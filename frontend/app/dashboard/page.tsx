@@ -27,9 +27,11 @@ export default async function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen">
+    // Desktop is a fixed app shell — the header and workspace split the
+    // viewport exactly and inner panels scroll. Mobile keeps page scroll.
+    <div className="min-h-screen lg:flex lg:h-screen lg:flex-col lg:overflow-hidden">
       <DashboardHeader user={profile} />
-      <main>
+      <main className="lg:min-h-0 lg:flex-1">
         <Workspace userId={user.id} />
       </main>
     </div>

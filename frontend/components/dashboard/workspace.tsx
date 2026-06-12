@@ -279,7 +279,7 @@ export function Workspace({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[110rem] px-6 py-10 lg:flex lg:h-[calc(100vh_-_4rem)] lg:flex-col lg:overflow-hidden lg:px-10 lg:py-8">
+    <div className="w-full px-6 py-10 lg:flex lg:h-full lg:flex-col lg:overflow-hidden lg:px-10 lg:py-8">
       <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:gap-10 xl:grid-cols-[330px_1fr]">
         {/* History: a persistent, self-scrolling sidebar on desktop; tucked
             under the form on mobile (hidden there while a result is shown). */}
