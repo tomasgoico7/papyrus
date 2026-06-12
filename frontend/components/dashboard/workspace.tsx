@@ -37,9 +37,6 @@ import { cn } from "@/lib/utils";
 
 type Status = "idle" | "analyzing" | "ready" | "error";
 
-// The main area swaps between the form and the result. On desktop the history
-// lives in a persistent sidebar; on mobile it sits under the form, so switching
-// to the result effectively becomes a second screen.
 type View = "form" | "result";
 
 interface ActiveAnalysis {
@@ -67,8 +64,7 @@ export function Workspace({ userId }: { userId: string }) {
   const supabase = useMemo(() => createClient(), []);
   const mainRef = useRef<HTMLElement>(null);
 
-  // The main area owns its scroll on desktop and the page owns it on mobile, so
-  // switching analyses resets whichever one is active back to the top.
+  // Desktop scrolls the main pane; mobile scrolls the page.
   function resetScroll() {
     mainRef.current?.scrollTo({ top: 0 });
     if (
@@ -125,8 +121,6 @@ export function Workspace({ userId }: { userId: string }) {
     };
   }, [supabase, userId]);
 
-  // Choosing a freshly uploaded file and reusing a saved one are mutually
-  // exclusive, so picking either clears the other.
   function handleCvChange(file: File | null) {
     setCvFile(file);
     if (file) setSelectedCv(null);
@@ -155,8 +149,8 @@ export function Workspace({ userId }: { userId: string }) {
         throw new GatewayError(t.result.sessionExpired, "unauthorized", 401);
       }
 
-      // A reused CV is already in storage: pull the bytes back to re-analyze it
-      // and link the existing record instead of uploading a duplicate.
+      // A reused CV is fetched back from storage and linked to its existing
+      // record instead of being uploaded again.
       let cvForAnalysis: File;
       let cvId: string | undefined;
       if (selectedCv) {
@@ -281,8 +275,6 @@ export function Workspace({ userId }: { userId: string }) {
   return (
     <div className="w-full px-6 py-10 lg:flex lg:h-full lg:flex-col lg:overflow-hidden lg:p-0">
       <div className="flex flex-col gap-10 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[380px_1fr] lg:gap-0 xl:grid-cols-[480px_1fr]">
-        {/* History: a persistent, self-scrolling sidebar on desktop; tucked
-            under the form on mobile (hidden there while a result is shown). */}
         <aside
           className={cn(
             "order-2 min-w-0 lg:order-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:border-r lg:border-line lg:pl-10 lg:pr-8 lg:pt-8",

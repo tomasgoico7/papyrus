@@ -29,16 +29,14 @@ export function HistoryPanel({
 }: HistoryPanelProps) {
   const { t } = useI18n();
   const [pendingDelete, setPendingDelete] = useState<AnalysisRecord | null>(null);
-  // On mobile the list sits below a tall form, so it stays collapsed by default
-  // to avoid a long scroll. Desktop always shows it (the toggle is mobile-only).
+  // Collapsed by default on mobile, where the list sits below a tall form.
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
   const [verdict, setVerdict] = useState<VerdictFilter>("all");
 
   const hasRecords = !loading && records.length > 0;
 
-  // Filtering happens client-side: at most 50 records are already in memory, so
-  // there is nothing to gain from a round-trip, and results stay instant.
+  // At most 50 records are in memory, so filtering stays client-side.
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return records.filter((record) => {

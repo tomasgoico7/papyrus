@@ -8,7 +8,6 @@ export interface StoredCv {
   storagePath: string;
 }
 
-/** A previously uploaded CV, surfaced so it can be reused for a new analysis. */
 export interface StoredCvSummary {
   id: string;
   filename: string;
@@ -62,11 +61,6 @@ interface CvRow {
   created_at: string;
 }
 
-/**
- * Lists the user's reusable CVs, most recent first and de-duplicated by
- * filename — re-running an analysis uploads a fresh copy, so the same CV often
- * appears many times and the picker would otherwise be noisy.
- */
 export async function listCvs(
   supabase: SupabaseClient,
   userId: string,
@@ -80,6 +74,8 @@ export async function listCvs(
     throw new Error(`Failed to load CVs: ${error.message}`);
   }
 
+  // Each analysis stores its own copy, so de-dupe by filename to keep the
+  // picker short.
   const seen = new Set<string>();
   const unique: StoredCvSummary[] = [];
   for (const row of data as CvRow[]) {
@@ -96,7 +92,6 @@ export async function listCvs(
   return unique;
 }
 
-/** Downloads a stored CV so it can be re-submitted to the analysis endpoint. */
 export async function downloadStoredCv(
   supabase: SupabaseClient,
   storagePath: string,
