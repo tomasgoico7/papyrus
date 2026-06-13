@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { AnalysisViewData } from "@/components/analysis/analysis-view";
 import type {
   AnalysisRecord,
   AnalysisResult,
@@ -19,11 +20,13 @@ interface AnalysisRow {
   missing_skills: LocalizedList;
   suggestions: Suggestion[];
   created_at: string;
+  share_token: string | null;
+  share_expires_at: string | null;
   cvs: { storage_path: string | null } | null;
 }
 
 const SELECT =
-  "id, job_title, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, cvs ( storage_path )";
+  "id, job_title, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, share_token, share_expires_at, cvs ( storage_path )";
 
 function toRecord(row: AnalysisRow): AnalysisRecord {
   return {
@@ -38,6 +41,8 @@ function toRecord(row: AnalysisRow): AnalysisRecord {
     missingSkills: row.missing_skills,
     suggestions: row.suggestions,
     createdAt: row.created_at,
+    shareToken: row.share_token,
+    shareExpiresAt: row.share_expires_at,
   };
 }
 
@@ -104,4 +109,77 @@ export async function deleteAnalysis(
   if (error) {
     throw new Error(`Failed to delete analysis: ${error.message}`);
   }
+}
+
+export interface ShareInfo {
+  token: string;
+  expiresAt: string;
+}
+
+export async function enableSharing(
+  supabase: SupabaseClient,
+  analysisId: string,
+  days: number,
+): Promise<ShareInfo> {
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
+
+  const { error } = await supabase
+    .from("analyses")
+    .update({ share_token: token, share_expires_at: expiresAt })
+    .eq("id", analysisId);
+  if (error) {
+    throw new Error(`Failed to share analysis: ${error.message}`);
+  }
+
+  return { token, expiresAt };
+}
+
+export async function disableSharing(
+  supabase: SupabaseClient,
+  analysisId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("analyses")
+    .update({ share_token: null, share_expires_at: null })
+    .eq("id", analysisId);
+  if (error) {
+    throw new Error(`Failed to stop sharing: ${error.message}`);
+  }
+}
+
+interface SharedRow {
+  id: string;
+  job_title: string | null;
+  score: number;
+  verdict: AnalysisRecord["verdict"];
+  summary: Localized;
+  matched_skills: LocalizedList;
+  missing_skills: LocalizedList;
+  suggestions: Suggestion[];
+  created_at: string;
+}
+
+/** Reads a publicly shared analysis by token; null when missing or expired. */
+export async function getSharedAnalysis(
+  supabase: SupabaseClient,
+  token: string,
+): Promise<AnalysisViewData | null> {
+  const { data, error } = await supabase
+    .rpc("get_shared_analysis", { token })
+    .maybeSingle<SharedRow>();
+  if (error || !data) {
+    return null;
+  }
+
+  return {
+    jobTitle: data.job_title,
+    score: data.score,
+    verdict: data.verdict,
+    summary: data.summary,
+    matchedSkills: data.matched_skills,
+    missingSkills: data.missing_skills,
+    suggestions: data.suggestions,
+    createdAt: data.created_at,
+  };
 }

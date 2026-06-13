@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileDown } from "lucide-react";
+import { Download, FileDown, Share2 } from "lucide-react";
 import { useState } from "react";
 
 import { ScoreRing } from "@/components/analysis/score-ring";
@@ -27,9 +27,10 @@ export interface AnalysisViewData {
 interface AnalysisViewProps {
   data: AnalysisViewData;
   onDownloadCv?: () => void;
+  onShare?: () => void;
 }
 
-export function AnalysisView({ data, onDownloadCv }: AnalysisViewProps) {
+export function AnalysisView({ data, onDownloadCv, onShare }: AnalysisViewProps) {
   const { t, locale } = useI18n();
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
@@ -101,6 +102,16 @@ export function AnalysisView({ data, onDownloadCv }: AnalysisViewProps) {
               >
                 <Download className="h-3.5 w-3.5" aria-hidden />
                 {t.analysis.downloadCv}
+              </button>
+            ) : null}
+            {onShare ? (
+              <button
+                type="button"
+                onClick={onShare}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-accent transition-opacity hover:opacity-70"
+              >
+                <Share2 className="h-3.5 w-3.5" aria-hidden />
+                {t.share.button}
               </button>
             ) : null}
           </div>

@@ -43,6 +43,8 @@ export interface AnalysisRecord {
   missingSkills: LocalizedList;
   suggestions: Suggestion[];
   createdAt: string;
+  shareToken: string | null;
+  shareExpiresAt: string | null;
 }
 
 export interface AuthenticatedUser {

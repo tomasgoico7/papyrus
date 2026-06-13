@@ -7,6 +7,7 @@ import {
   AnalysisView,
   type AnalysisViewData,
 } from "@/components/analysis/analysis-view";
+import { ShareDialog } from "@/components/analysis/share-dialog";
 import { AnalyzerForm } from "@/components/dashboard/analyzer-form";
 import { HistoryPanel } from "@/components/dashboard/history-panel";
 import {
@@ -43,6 +44,8 @@ interface ActiveAnalysis {
   id: string;
   data: AnalysisViewData;
   cvStoragePath: string | null;
+  shareToken: string | null;
+  shareExpiresAt: string | null;
 }
 
 function toView(record: AnalysisRecord): AnalysisViewData {
@@ -86,6 +89,7 @@ export function Workspace({ userId }: { userId: string }) {
   const [cvNotice, setCvNotice] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveAnalysis | null>(null);
   const [view, setView] = useState<View>("form");
+  const [shareOpen, setShareOpen] = useState(false);
 
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -204,6 +208,8 @@ export function Workspace({ userId }: { userId: string }) {
         id: record.id,
         data: toView(record),
         cvStoragePath: record.cvStoragePath,
+        shareToken: record.shareToken,
+        shareExpiresAt: record.shareExpiresAt,
       });
       setStatus("ready");
     } catch (error) {
@@ -222,6 +228,8 @@ export function Workspace({ userId }: { userId: string }) {
       id: record.id,
       data: toView(record),
       cvStoragePath: record.cvStoragePath,
+      shareToken: record.shareToken,
+      shareExpiresAt: record.shareExpiresAt,
     });
     setStatus("ready");
     setView("result");
@@ -231,6 +239,25 @@ export function Workspace({ userId }: { userId: string }) {
   function showForm() {
     setView("form");
     resetScroll();
+  }
+
+  function applyShareChange(
+    id: string,
+    token: string | null,
+    expiresAt: string | null,
+  ) {
+    setActive((previous) =>
+      previous && previous.id === id
+        ? { ...previous, shareToken: token, shareExpiresAt: expiresAt }
+        : previous,
+    );
+    setHistory((previous) =>
+      previous.map((record) =>
+        record.id === id
+          ? { ...record, shareToken: token, shareExpiresAt: expiresAt }
+          : record,
+      ),
+    );
   }
 
   async function downloadCv(storagePath: string) {
@@ -340,7 +367,11 @@ export function Workspace({ userId }: { userId: string }) {
               ) : active ? (
                 <div className="mx-auto w-full max-w-3xl space-y-5 lg:pt-4 xl:max-w-6xl">
                   {cvNotice ? <CvNotice message={cvNotice} /> : null}
-                  <AnalysisView data={active.data} onDownloadCv={downloadHandler} />
+                  <AnalysisView
+                    data={active.data}
+                    onDownloadCv={downloadHandler}
+                    onShare={() => setShareOpen(true)}
+                  />
                 </div>
               ) : (
                 <EmptyState />
@@ -349,6 +380,19 @@ export function Workspace({ userId }: { userId: string }) {
           )}
         </main>
       </div>
+
+      {active ? (
+        <ShareDialog
+          open={shareOpen}
+          analysisId={active.id}
+          token={active.shareToken}
+          expiresAt={active.shareExpiresAt}
+          onClose={() => setShareOpen(false)}
+          onChange={(token, expiresAt) =>
+            applyShareChange(active.id, token, expiresAt)
+          }
+        />
+      ) : null}
     </div>
   );
 }

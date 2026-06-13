@@ -95,6 +95,26 @@ export interface Dictionary {
     verdict: { strong: string; moderate: string; weak: string };
     priority: { high: string; medium: string; low: string };
   };
+  share: {
+    button: string;
+    dialogTitle: string;
+    dialogDescription: string;
+    expiryLabel: string;
+    daysOption: string;
+    create: string;
+    creating: string;
+    linkLabel: string;
+    copy: string;
+    copied: string;
+    expiresOn: string;
+    stop: string;
+    close: string;
+    unavailableTitle: string;
+    unavailableBody: string;
+    ctaTitle: string;
+    ctaButton: string;
+    poweredBy: string;
+  };
   a11y: {
     toggleTheme: string;
     switchLanguage: string;
@@ -213,6 +233,28 @@ const en: Dictionary = {
     defaultTitle: "Compatibility analysis",
     verdict: { strong: "Strong fit", moderate: "Moderate fit", weak: "Weak fit" },
     priority: { high: "High impact", medium: "Worth doing", low: "Nice to have" },
+  },
+  share: {
+    button: "Share",
+    dialogTitle: "Share analysis",
+    dialogDescription:
+      "Anyone with the link can view this analysis. Your CV is never shared.",
+    expiryLabel: "Link expires in",
+    daysOption: "{days} days",
+    create: "Create link",
+    creating: "Creating…",
+    linkLabel: "Shareable link",
+    copy: "Copy",
+    copied: "Copied",
+    expiresOn: "Expires on {date}",
+    stop: "Stop sharing",
+    close: "Close",
+    unavailableTitle: "Link unavailable",
+    unavailableBody:
+      "This shared link has expired or is no longer available.",
+    ctaTitle: "Measure your own CV against any job posting.",
+    ctaButton: "Try Papyrus",
+    poweredBy: "Made with Papyrus",
   },
   a11y: {
     toggleTheme: "Toggle theme",
@@ -336,6 +378,27 @@ const es: Dictionary = {
       weak: "Baja compatibilidad",
     },
     priority: { high: "Alto impacto", medium: "Vale la pena", low: "Opcional" },
+  },
+  share: {
+    button: "Compartir",
+    dialogTitle: "Compartir análisis",
+    dialogDescription:
+      "Cualquiera con el link puede ver este análisis. Tu CV nunca se comparte.",
+    expiryLabel: "El link vence en",
+    daysOption: "{days} días",
+    create: "Crear link",
+    creating: "Creando…",
+    linkLabel: "Link para compartir",
+    copy: "Copiar",
+    copied: "Copiado",
+    expiresOn: "Vence el {date}",
+    stop: "Dejar de compartir",
+    close: "Cerrar",
+    unavailableTitle: "Link no disponible",
+    unavailableBody: "Este link compartido expiró o ya no está disponible.",
+    ctaTitle: "Medí tu propio CV contra cualquier oferta de trabajo.",
+    ctaButton: "Probar Papyrus",
+    poweredBy: "Hecho con Papyrus",
   },
   a11y: {
     toggleTheme: "Cambiar tema",
