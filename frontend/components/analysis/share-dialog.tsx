@@ -30,7 +30,7 @@ export function ShareDialog({
   onClose,
   onChange,
 }: ShareDialogProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const supabase = useMemo(() => createClient(), []);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -173,7 +173,7 @@ export function ShareDialog({
             <div className="flex items-center justify-between gap-4 border-t border-line pt-4">
               <span className="text-xs text-ink-faint">
                 {expiresAt
-                  ? t.share.expiresOn.replace("{date}", formatDate(expiresAt))
+                  ? t.share.expiresOn.replace("{date}", formatDate(expiresAt, locale))
                   : null}
               </span>
               <button

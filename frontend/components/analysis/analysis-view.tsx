@@ -58,7 +58,7 @@ export function AnalysisView({ data, onDownloadCv, onShare }: AnalysisViewProps)
           verdict: t.analysis.verdict,
           priority: t.analysis.priority,
         },
-        data.createdAt ? formatDate(data.createdAt) : null,
+        data.createdAt ? formatDate(data.createdAt, locale) : null,
         `papyrus-${slugify(title)}.pdf`,
       );
     } catch (error) {
@@ -78,7 +78,7 @@ export function AnalysisView({ data, onDownloadCv, onShare }: AnalysisViewProps)
           </h2>
           <p className="text-sm text-ink-faint">
             {data.cvFilename}
-            {data.createdAt ? ` · ${formatDate(data.createdAt)}` : null}
+            {data.createdAt ? ` · ${formatDate(data.createdAt, locale)}` : null}
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
             <button

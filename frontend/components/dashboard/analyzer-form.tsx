@@ -41,7 +41,7 @@ export function AnalyzerForm({
   pending,
   maxUploadMb,
 }: AnalyzerFormProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const hasCv = cvFile !== null || selectedCv !== null;
   const canSubmit =
     !pending && hasCv && jobOffer.trim().length >= MIN_OFFER_LENGTH;
@@ -105,7 +105,7 @@ export function AnalyzerForm({
                 </option>
                 {storedCvs.map((cv) => (
                   <option key={cv.id} value={cv.id}>
-                    {cv.filename} · {formatDate(cv.createdAt)}
+                    {cv.filename} · {formatDate(cv.createdAt, locale)}
                   </option>
                 ))}
               </select>

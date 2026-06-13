@@ -1,16 +1,26 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+import type { Locale } from "@/lib/i18n/config";
+
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+const MONTHS: Record<Locale, readonly string[]> = {
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  es: ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"],
+};
+
+// Formatted from explicit month names in UTC so the server and the client always
+// produce the same string — toLocaleDateString picks a different default locale
+// and timezone on each, which breaks hydration on server-rendered pages.
+export function formatDate(iso: string, locale: Locale = "en"): string {
+  const date = new Date(iso);
+  const day = date.getUTCDate();
+  const month = MONTHS[locale][date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+  return locale === "en" ? `${month} ${day}, ${year}` : `${day} ${month} ${year}`;
 }
 
 /** Turns arbitrary text into a filename-safe, accent-free slug. */

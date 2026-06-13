@@ -27,7 +27,7 @@ export function HistoryPanel({
   onDelete,
   loading,
 }: HistoryPanelProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [pendingDelete, setPendingDelete] = useState<AnalysisRecord | null>(null);
   // Collapsed by default on mobile, where the list sits below a tall form.
   const [expanded, setExpanded] = useState(false);
@@ -147,7 +147,7 @@ export function HistoryPanel({
                         {record.jobTitle?.trim() || t.dashboard.untitledRole}
                       </span>
                       <span className="block text-xs text-ink-faint">
-                        {formatDate(record.createdAt)}
+                        {formatDate(record.createdAt, locale)}
                       </span>
                     </span>
                   </button>
