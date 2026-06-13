@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { StoredCvSummary } from "@/lib/cvs/repository";
 import { MIN_OFFER_LENGTH } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 interface AnalyzerFormProps {
   cvFile: File | null;
@@ -52,79 +52,89 @@ export function AnalyzerForm({
         event.preventDefault();
         if (canSubmit) onSubmit();
       }}
-      className="space-y-6 rounded-3xl border border-line bg-surface p-6 shadow-subtle"
+      className="space-y-7 rounded-3xl border border-line bg-surface p-6 shadow-subtle lg:p-8"
     >
-      <Field label={t.dashboard.cvLabel}>
-        {selectedCv ? (
-          <div className="flex items-center gap-3 rounded-xl border border-line bg-canvas px-4 py-3">
-            <FileText className="h-5 w-5 shrink-0 text-ink-faint" aria-hidden />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{selectedCv.filename}</p>
-              <p className="text-xs text-ink-faint">{t.dashboard.reusedCvHint}</p>
-            </div>
-            <button
-              type="button"
-              onClick={onClearStoredCv}
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-stretch lg:gap-8">
+        <div className="space-y-6">
+          <Field label={t.dashboard.cvLabel}>
+            {selectedCv ? (
+              <div className="flex items-center gap-3 rounded-xl border border-line bg-canvas px-4 py-3">
+                <FileText className="h-5 w-5 shrink-0 text-ink-faint" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {selectedCv.filename}
+                  </p>
+                  <p className="text-xs text-ink-faint">
+                    {t.dashboard.reusedCvHint}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClearStoredCv}
+                  disabled={pending}
+                  aria-label={t.dashboard.removeFile}
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-surface hover:text-ink"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            ) : (
+              <CvDropzone
+                file={cvFile}
+                onSelect={onCvChange}
+                maxSizeMb={maxUploadMb}
+                disabled={pending}
+              />
+            )}
+
+            {!hasCv && storedCvs.length > 0 ? (
+              <select
+                value=""
+                onChange={(event) => {
+                  const cv = storedCvs.find(
+                    (item) => item.id === event.target.value,
+                  );
+                  if (cv) onSelectStoredCv(cv);
+                }}
+                disabled={pending}
+                aria-label={t.dashboard.reuseCvPlaceholder}
+                className="mt-3 w-full rounded-xl border border-line bg-canvas px-4 py-2.5 text-sm text-ink-muted outline-none transition-colors focus:border-ink-faint"
+              >
+                <option value="" disabled>
+                  {t.dashboard.reuseCvPlaceholder}
+                </option>
+                {storedCvs.map((cv) => (
+                  <option key={cv.id} value={cv.id}>
+                    {cv.filename} · {formatDate(cv.createdAt)}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </Field>
+
+          <Field label={t.dashboard.roleLabel} hint={t.dashboard.optional}>
+            <input
+              type="text"
+              value={jobTitle}
+              onChange={(event) => onJobTitleChange(event.target.value)}
+              placeholder={t.dashboard.rolePlaceholder}
               disabled={pending}
-              aria-label={t.dashboard.removeFile}
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-surface hover:text-ink"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
-        ) : (
-          <CvDropzone
-            file={cvFile}
-            onSelect={onCvChange}
-            maxSizeMb={maxUploadMb}
+              className="w-full rounded-xl border border-line bg-canvas px-4 py-3 text-sm outline-none transition-colors placeholder:text-ink-faint focus:border-ink-faint"
+            />
+          </Field>
+        </div>
+
+        <Field label={t.dashboard.jobLabel} className="flex flex-col">
+          <textarea
+            value={jobOffer}
+            onChange={(event) => onJobOfferChange(event.target.value)}
+            placeholder={t.dashboard.jobPlaceholder}
+            rows={8}
             disabled={pending}
+            className="w-full flex-1 resize-none break-words rounded-xl border border-line bg-canvas px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-faint focus:border-ink-faint lg:min-h-[16rem]"
           />
-        )}
-
-        {!hasCv && storedCvs.length > 0 ? (
-          <select
-            value=""
-            onChange={(event) => {
-              const cv = storedCvs.find((item) => item.id === event.target.value);
-              if (cv) onSelectStoredCv(cv);
-            }}
-            disabled={pending}
-            aria-label={t.dashboard.reuseCvPlaceholder}
-            className="mt-3 w-full rounded-xl border border-line bg-canvas px-4 py-2.5 text-sm text-ink-muted outline-none transition-colors focus:border-ink-faint"
-          >
-            <option value="" disabled>
-              {t.dashboard.reuseCvPlaceholder}
-            </option>
-            {storedCvs.map((cv) => (
-              <option key={cv.id} value={cv.id}>
-                {cv.filename} · {formatDate(cv.createdAt)}
-              </option>
-            ))}
-          </select>
-        ) : null}
-      </Field>
-
-      <Field label={t.dashboard.roleLabel} hint={t.dashboard.optional}>
-        <input
-          type="text"
-          value={jobTitle}
-          onChange={(event) => onJobTitleChange(event.target.value)}
-          placeholder={t.dashboard.rolePlaceholder}
-          disabled={pending}
-          className="w-full rounded-xl border border-line bg-canvas px-4 py-3 text-sm outline-none transition-colors placeholder:text-ink-faint focus:border-ink-faint"
-        />
-      </Field>
-
-      <Field label={t.dashboard.jobLabel}>
-        <textarea
-          value={jobOffer}
-          onChange={(event) => onJobOfferChange(event.target.value)}
-          placeholder={t.dashboard.jobPlaceholder}
-          rows={8}
-          disabled={pending}
-          className="w-full resize-none break-words rounded-xl border border-line bg-canvas px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-faint focus:border-ink-faint"
-        />
-      </Field>
+        </Field>
+      </div>
 
       <Button type="submit" disabled={!canSubmit} className="w-full" size="lg">
         {pending ? (
@@ -146,14 +156,16 @@ export function AnalyzerForm({
 function Field({
   label,
   hint,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
+    <label className={cn("block", className)}>
       <span className="mb-2 flex items-center justify-between text-sm font-medium">
         {label}
         {hint ? (

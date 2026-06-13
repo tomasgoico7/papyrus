@@ -305,15 +305,7 @@ export function Workspace({ userId }: { userId: string }) {
           className="scrollbar-thin order-1 min-w-0 lg:order-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:px-10 lg:pb-16 lg:pt-8"
         >
           {view === "form" ? (
-            <div className="mx-auto w-full max-w-xl animate-fade-up lg:pt-4 xl:max-w-2xl">
-              <div className="mb-8 hidden lg:block">
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  {t.dashboard.title}
-                </h1>
-                <p className="mt-1 text-sm text-ink-muted">
-                  {t.dashboard.subtitle}
-                </p>
-              </div>
+            <div className="mx-auto w-full max-w-2xl animate-fade-up lg:flex lg:min-h-full lg:max-w-4xl lg:flex-col lg:justify-center xl:max-w-5xl">
               <AnalyzerForm
                 cvFile={cvFile}
                 onCvChange={handleCvChange}
