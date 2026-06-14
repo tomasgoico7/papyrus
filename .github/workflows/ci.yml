@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   frontend:
-    name: frontend (lint · typecheck · build)
+    name: frontend (lint · typecheck · test · build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -28,6 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build
         env:
           # next build evaluates client modules that read these; real values
