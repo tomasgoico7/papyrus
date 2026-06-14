@@ -33,7 +33,9 @@ La interfaz es bilingüe (español / inglés), tiene tema claro y oscuro, y trat
 - **Score de compatibilidad** — subís un CV (PDF) y una oferta, y obtenés un score de ajuste del 0 al 100 más un veredicto `strong` / `moderate` / `weak`.
 - **Skills que coinciden vs. las que faltan** — el modelo separa lo que pide la oferta entre lo que tu CV ya demuestra y lo que no.
 - **Sugerencias accionables** — de dos a cinco cambios concretos para ese puesto, ordenados por impacto, que nunca inventan experiencia que no tenés.
-- **Historial** — cada análisis queda guardado. Podés reabrir cualquiera, descargar el CV original (URL firmada, bucket privado), o eliminarlo (con confirmación, porque también borra el archivo guardado).
+- **Historial con búsqueda y filtros** — cada análisis queda guardado. Podés buscarlos por puesto y filtrarlos por compatibilidad, reabrir cualquiera, reusar un CV ya subido para medirlo contra otra oferta, descargar el CV original (URL firmada, bucket privado), o eliminarlo (con confirmación, porque también borra el archivo guardado).
+- **Exportar a PDF** — descargás cualquier análisis como un PDF prolijo y bilingüe (texto seleccionable), generado en el navegador.
+- **Compartir por link** — generás un link público con vencimiento para que cualquiera vea el análisis (nunca tu CV), revocable cuando quieras.
 - **Contenido bilingüe** — el análisis se genera en inglés *y* español en una sola llamada al modelo, así que cambiar el idioma de la UI re-renderiza el resultado al instante sin volver a correr nada.
 - **Tema claro / oscuro** — sigue tu sistema operativo por defecto, con un toggle manual.
 - **Login con Google** — vía Supabase Auth. Sin contraseñas que guardar.
@@ -116,7 +118,7 @@ El split, siendo honesto, es un poco demasiado para una herramienta de CVs — p
 ```
 papyrus/
 ├── frontend/                    # app Next.js 14
-│   ├── app/                     # rutas: landing, /dashboard, /auth/{callback,signout}, icon.svg
+│   ├── app/                     # rutas: landing, /dashboard, /share/[token], /auth/{callback,signout}
 │   ├── components/
 │   │   ├── analysis/            # anillo de score, listas de skills, badge de veredicto, sugerencias
 │   │   ├── dashboard/           # workspace, formulario, dropzone, historial, estados de resultado
@@ -138,7 +140,7 @@ papyrus/
 ├── ai-service/                  # Python + FastAPI
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, la cadena del modelo está fakeada
-├── supabase/migrations/         # 0001 esquema+RLS, 0002 storage, 0003 bilingüe
+├── supabase/migrations/         # 0001 esquema+RLS, 0002 storage, 0003 bilingüe, 0004 compartir
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -162,6 +164,7 @@ Si querés correr un servicio fuera de Docker vas a necesitar además Node 20+, 
 - [`0001_init.sql`](supabase/migrations/0001_init.sql) — `profiles`, `analyses`, `cvs`, las políticas RLS, y un trigger que crea la fila de perfil al registrarse.
 - [`0002_cv_storage.sql`](supabase/migrations/0002_cv_storage.sql) — el bucket privado `cvs` de Storage y las políticas de objetos scopeadas al dueño (`<user-id>/<cv-id>.pdf`).
 - [`0003_bilingual_analyses.sql`](supabase/migrations/0003_bilingual_analyses.sql) — solo hace falta si tu base es anterior al cambio bilingüe; en una instalación nueva es un no-op protegido.
+- [`0004_analysis_sharing.sql`](supabase/migrations/0004_analysis_sharing.sql) — las columnas de compartir (`share_token`, `share_expires_at`) y la función `get_shared_analysis` (`security definer`) que sirve un análisis por link público sin saltarse la RLS.
 
 **Auth de Google.** Esta es la parte que lleva unos minutos. En la [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configurá la pantalla de consentimiento de OAuth (External), después creá un *ID de cliente de OAuth → Aplicación web* con este URI de redireccionamiento autorizado:
 
