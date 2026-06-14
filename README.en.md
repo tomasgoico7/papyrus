@@ -2,9 +2,9 @@
 
 *Versión en español: [README.md](README.md).*
 
-Papyrus tells you whether your CV actually fits a job before you spend an afternoon tailoring it. You drop in a PDF, paste the posting, and it comes back with a 0–100 compatibility score, the skills you already cover, the ones you're missing, and a short list of concrete edits for *that* specific role.
+Papyrus measures how well your CV fits a job before you spend an afternoon tailoring it by hand. You upload your CV as a PDF and paste the job description; in seconds you get a 0–100 compatibility score, a verdict (strong / moderate / weak), the skills the role asks for that you already cover, the ones you're missing, and a short list of concrete edits to bring your CV closer to *that* specific role. The point is to stop guessing whether it's worth applying and know, with data, what's worth adjusting.
 
-I built it as a proper full-stack exercise: three independently deployable services, a real Google sign-in flow, Row Level Security doing the authorization, and an LLM doing the actual reasoning. The rule I set for myself was that nothing could be faked — no mock data, no half-wired buttons, no "TODO: handle errors". It either works end to end or it isn't in here.
+I built it as a complete, real full-stack project: three independently deployable services, Google sign-in, Row Level Security doing the authorization at the database level, and an LLM doing the actual reasoning. The rule I set for myself was that nothing would be simulated — no mock data, no half-wired buttons, no "TODO: handle errors". It works end to end or it isn't in here.
 
 The interface is bilingual (English / Spanish), has light and dark themes, and tries hard to stay out of the way so the analysis is the only thing on screen worth looking at.
 
