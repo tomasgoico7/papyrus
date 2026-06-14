@@ -17,7 +17,7 @@ class _FakeChain:
     def __init__(self, result):
         self._result = result
 
-    async def ainvoke(self, _inputs):
+    def invoke(self, _inputs):
         if isinstance(self._result, Exception):
             raise self._result
         return self._result
