@@ -7,7 +7,6 @@ import { ScoreRing } from "@/components/analysis/score-ring";
 import { SkillList } from "@/components/analysis/skill-list";
 import { SuggestionCard } from "@/components/analysis/suggestion-card";
 import { VerdictBadge } from "@/components/analysis/verdict-badge";
-import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n/context";
 import type { Localized, LocalizedList, Suggestion, Verdict } from "@/lib/types";
@@ -87,15 +86,17 @@ export function AnalysisView({
             {data.cvFilename}
             {data.createdAt ? ` · ${formatDate(data.createdAt, locale)}` : null}
           </p>
-          {onTailor ? (
-            <div className="pt-1">
-              <Button type="button" size="sm" onClick={onTailor}>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
+            {onTailor ? (
+              <button
+                type="button"
+                onClick={onTailor}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-accent transition-opacity hover:opacity-70"
+              >
                 <Wand2 className="h-4 w-4" aria-hidden />
                 {t.tailor.button}
-              </Button>
-            </div>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={handleDownloadPdf}
