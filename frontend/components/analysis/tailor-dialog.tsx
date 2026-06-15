@@ -371,12 +371,14 @@ function CvPreview({ cv }: { cv: TailoredCv }) {
 
       <div className="rounded-2xl border border-line bg-canvas p-6">
         <header>
-          <h3 className="text-xl font-semibold tracking-tight">{cv.fullName}</h3>
+          <h3 className="text-2xl font-semibold tracking-tight">{cv.fullName}</h3>
           {cv.headline ? (
-            <p className="text-sm font-medium text-accent">{cv.headline}</p>
+            <p className="mt-1.5 text-sm font-medium text-accent">{cv.headline}</p>
           ) : null}
           {cv.contact ? (
-            <p className="mt-1 text-xs text-ink-faint">{cv.contact}</p>
+            <p className="mt-2.5 text-xs leading-relaxed text-ink-faint">
+              {cv.contact}
+            </p>
           ) : null}
         </header>
 
