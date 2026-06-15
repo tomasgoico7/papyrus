@@ -113,6 +113,11 @@ func encodeMultipart(req AnalyzeRequest) (io.Reader, string, error) {
 }
 
 func decodeUpstreamError(resp *http.Response) error {
+	data, _ := io.ReadAll(resp.Body)
+	return decodeUpstreamErrorBytes(resp.StatusCode, data)
+}
+
+func decodeUpstreamErrorBytes(statusCode int, data []byte) error {
 	var envelope struct {
 		Error struct {
 			Code    string `json:"code"`
@@ -120,16 +125,16 @@ func decodeUpstreamError(resp *http.Response) error {
 		} `json:"error"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil || envelope.Error.Message == "" {
+	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Error.Message == "" {
 		return &UpstreamError{
-			StatusCode: resp.StatusCode,
+			StatusCode: statusCode,
 			Code:       "ai_service_error",
-			Message:    "The analysis service returned an unexpected response.",
+			Message:    "The AI service returned an unexpected response.",
 		}
 	}
 
 	return &UpstreamError{
-		StatusCode: resp.StatusCode,
+		StatusCode: statusCode,
 		Code:       envelope.Error.Code,
 		Message:    envelope.Error.Message,
 	}

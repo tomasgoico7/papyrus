@@ -23,6 +23,8 @@ func New(cfg *config.Config) *gin.Engine {
 
 	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, cfg.AIServiceToken, &http.Client{})
 	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
+	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, &http.Client{})
+	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	keySet := auth.NewKeySet(cfg.JWKSURL)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 
@@ -31,6 +33,8 @@ func New(cfg *config.Config) *gin.Engine {
 	authed := engine.Group("/")
 	authed.Use(middleware.Auth(keySet.Keyfunc), rateLimiter.Middleware())
 	authed.POST("/analyze", analyzeHandler.Handle)
+	authed.POST("/tailor/questions", tailorHandler.Questions)
+	authed.POST("/tailor/generate", tailorHandler.Generate)
 
 	return engine
 }

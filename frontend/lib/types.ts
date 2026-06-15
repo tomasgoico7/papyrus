@@ -30,10 +30,45 @@ export interface AnalysisResult {
   cvFilename: string;
 }
 
+export interface TailoringQuestion {
+  topic: string;
+  question: string;
+}
+
+export interface TailoringAnswer {
+  topic: string;
+  answer: string;
+}
+
+export interface ExperienceItem {
+  role: string;
+  company: string;
+  period: string;
+  highlights: string[];
+}
+
+export interface EducationItem {
+  degree: string;
+  institution: string;
+  period: string;
+}
+
+/** A CV rewritten for a specific posting, grounded in the user's real data. */
+export interface TailoredCv {
+  fullName: string;
+  contact: string;
+  headline: string;
+  summary: string;
+  experience: ExperienceItem[];
+  skills: string[];
+  education: EducationItem[];
+}
+
 /** A persisted analysis as surfaced to the dashboard history. */
 export interface AnalysisRecord {
   id: string;
   jobTitle: string | null;
+  jobOffer: string;
   cvFilename: string | null;
   cvStoragePath: string | null;
   score: number;

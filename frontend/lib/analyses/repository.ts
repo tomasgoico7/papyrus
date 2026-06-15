@@ -12,6 +12,7 @@ import type {
 interface AnalysisRow {
   id: string;
   job_title: string | null;
+  job_offer: string;
   cv_filename: string | null;
   score: number;
   verdict: AnalysisRecord["verdict"];
@@ -26,12 +27,13 @@ interface AnalysisRow {
 }
 
 const SELECT =
-  "id, job_title, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, share_token, share_expires_at, cvs ( storage_path )";
+  "id, job_title, job_offer, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, share_token, share_expires_at, cvs ( storage_path )";
 
 function toRecord(row: AnalysisRow): AnalysisRecord {
   return {
     id: row.id,
     jobTitle: row.job_title,
+    jobOffer: row.job_offer,
     cvFilename: row.cv_filename,
     cvStoragePath: row.cvs?.storage_path ?? null,
     score: row.score,

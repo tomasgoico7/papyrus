@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.services.analyzer import AnalysisError
 from app.services.pdf_extractor import UnreadableCVError
+from app.services.tailor import TailorError
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AnalysisError)
     async def _handle_analysis_error(_: Request, exc: AnalysisError) -> JSONResponse:
         return _envelope(502, "analysis_failed", str(exc))
+
+    @app.exception_handler(TailorError)
+    async def _handle_tailor_error(_: Request, exc: TailorError) -> JSONResponse:
+        return _envelope(502, "tailor_failed", str(exc))
 
     @app.exception_handler(RequestValidationError)
     async def _handle_validation_error(_: Request, __: RequestValidationError) -> JSONResponse:

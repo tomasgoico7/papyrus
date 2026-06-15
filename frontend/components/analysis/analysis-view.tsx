@@ -1,12 +1,13 @@
 "use client";
 
-import { Download, FileDown, Share2 } from "lucide-react";
+import { Download, FileDown, Share2, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import { ScoreRing } from "@/components/analysis/score-ring";
 import { SkillList } from "@/components/analysis/skill-list";
 import { SuggestionCard } from "@/components/analysis/suggestion-card";
 import { VerdictBadge } from "@/components/analysis/verdict-badge";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n/context";
 import type { Localized, LocalizedList, Suggestion, Verdict } from "@/lib/types";
@@ -28,9 +29,15 @@ interface AnalysisViewProps {
   data: AnalysisViewData;
   onDownloadCv?: () => void;
   onShare?: () => void;
+  onTailor?: () => void;
 }
 
-export function AnalysisView({ data, onDownloadCv, onShare }: AnalysisViewProps) {
+export function AnalysisView({
+  data,
+  onDownloadCv,
+  onShare,
+  onTailor,
+}: AnalysisViewProps) {
   const { t, locale } = useI18n();
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
@@ -80,6 +87,14 @@ export function AnalysisView({ data, onDownloadCv, onShare }: AnalysisViewProps)
             {data.cvFilename}
             {data.createdAt ? ` · ${formatDate(data.createdAt, locale)}` : null}
           </p>
+          {onTailor ? (
+            <div className="pt-1">
+              <Button type="button" size="sm" onClick={onTailor}>
+                <Wand2 className="h-4 w-4" aria-hidden />
+                {t.tailor.button}
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
             <button
               type="button"

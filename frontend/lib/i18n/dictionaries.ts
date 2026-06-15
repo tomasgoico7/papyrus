@@ -115,6 +115,29 @@ export interface Dictionary {
     ctaButton: string;
     poweredBy: string;
   };
+  tailor: {
+    button: string;
+    dialogTitle: string;
+    step1Intro: string;
+    loadingQuestions: string;
+    noHave: string;
+    answerPlaceholder: string;
+    extraLabel: string;
+    extraPlaceholder: string;
+    generate: string;
+    generating: string;
+    back: string;
+    resultNote: string;
+    downloadPdf: string;
+    downloadDocx: string;
+    close: string;
+    error: string;
+    emptyQuestions: string;
+    secSummary: string;
+    secExperience: string;
+    secSkills: string;
+    secEducation: string;
+  };
   a11y: {
     toggleTheme: string;
     switchLanguage: string;
@@ -255,6 +278,32 @@ const en: Dictionary = {
     ctaTitle: "Measure your own CV against any job posting.",
     ctaButton: "Try Papyrus",
     poweredBy: "Made with Papyrus",
+  },
+  tailor: {
+    button: "Tailor my CV",
+    dialogTitle: "Tailor your CV to the role",
+    step1Intro:
+      "So nothing gets invented, answer with real experience. Anything you mark as “I don't have this” simply won't be added.",
+    loadingQuestions: "Finding where your CV can be sharper…",
+    noHave: "I don't have this",
+    answerPlaceholder: "Briefly describe your experience…",
+    extraLabel: "Anything else you'd like to highlight?",
+    extraPlaceholder: "Optional: achievements, certifications, projects…",
+    generate: "Generate tailored CV",
+    generating: "Writing your CV…",
+    back: "Back",
+    resultNote:
+      "Built only from your CV and your answers — nothing invented. Review it before you use it.",
+    downloadPdf: "Download PDF",
+    downloadDocx: "Download Word",
+    close: "Close",
+    error: "The CV couldn't be generated. Please try again.",
+    emptyQuestions:
+      "Your CV already covers what the role asks for. You can still generate a tailored version.",
+    secSummary: "Summary",
+    secExperience: "Experience",
+    secSkills: "Skills",
+    secEducation: "Education",
   },
   a11y: {
     toggleTheme: "Toggle theme",
@@ -399,6 +448,32 @@ const es: Dictionary = {
     ctaTitle: "Medí tu propio CV contra cualquier oferta de trabajo.",
     ctaButton: "Probar Papyrus",
     poweredBy: "Hecho con Papyrus",
+  },
+  tailor: {
+    button: "Adaptar mi CV",
+    dialogTitle: "Adaptá tu CV al puesto",
+    step1Intro:
+      "Para no inventar nada, respondé con experiencia real. Lo que marques como “No tengo esto” simplemente no se agrega.",
+    loadingQuestions: "Buscando dónde tu CV puede mejorar…",
+    noHave: "No tengo esto",
+    answerPlaceholder: "Contá brevemente tu experiencia…",
+    extraLabel: "¿Algo más que quieras destacar?",
+    extraPlaceholder: "Opcional: logros, certificaciones, proyectos…",
+    generate: "Generar CV adaptado",
+    generating: "Redactando tu CV…",
+    back: "Atrás",
+    resultNote:
+      "Hecho solo con tu CV y tus respuestas — nada inventado. Revisalo antes de usarlo.",
+    downloadPdf: "Descargar PDF",
+    downloadDocx: "Descargar Word",
+    close: "Cerrar",
+    error: "No se pudo generar el CV. Probá de nuevo.",
+    emptyQuestions:
+      "Tu CV ya cubre lo que pide el puesto. Igual podés generar una versión adaptada.",
+    secSummary: "Resumen",
+    secExperience: "Experiencia",
+    secSkills: "Habilidades",
+    secEducation: "Educación",
   },
   a11y: {
     toggleTheme: "Cambiar tema",

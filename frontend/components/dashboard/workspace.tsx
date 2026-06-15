@@ -8,6 +8,7 @@ import {
   type AnalysisViewData,
 } from "@/components/analysis/analysis-view";
 import { ShareDialog } from "@/components/analysis/share-dialog";
+import { TailorDialog } from "@/components/analysis/tailor-dialog";
 import { AnalyzerForm } from "@/components/dashboard/analyzer-form";
 import { HistoryPanel } from "@/components/dashboard/history-panel";
 import {
@@ -43,6 +44,7 @@ type View = "form" | "result";
 interface ActiveAnalysis {
   id: string;
   data: AnalysisViewData;
+  jobOffer: string;
   cvStoragePath: string | null;
   shareToken: string | null;
   shareExpiresAt: string | null;
@@ -90,6 +92,7 @@ export function Workspace({ userId }: { userId: string }) {
   const [active, setActive] = useState<ActiveAnalysis | null>(null);
   const [view, setView] = useState<View>("form");
   const [shareOpen, setShareOpen] = useState(false);
+  const [tailorOpen, setTailorOpen] = useState(false);
 
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -207,6 +210,7 @@ export function Workspace({ userId }: { userId: string }) {
       setActive({
         id: record.id,
         data: toView(record),
+        jobOffer: record.jobOffer,
         cvStoragePath: record.cvStoragePath,
         shareToken: record.shareToken,
         shareExpiresAt: record.shareExpiresAt,
@@ -227,6 +231,7 @@ export function Workspace({ userId }: { userId: string }) {
     setActive({
       id: record.id,
       data: toView(record),
+      jobOffer: record.jobOffer,
       cvStoragePath: record.cvStoragePath,
       shareToken: record.shareToken,
       shareExpiresAt: record.shareExpiresAt,
@@ -371,6 +376,9 @@ export function Workspace({ userId }: { userId: string }) {
                     data={active.data}
                     onDownloadCv={downloadHandler}
                     onShare={() => setShareOpen(true)}
+                    onTailor={
+                      active.cvStoragePath ? () => setTailorOpen(true) : undefined
+                    }
                   />
                 </div>
               ) : (
@@ -391,6 +399,23 @@ export function Workspace({ userId }: { userId: string }) {
           onChange={(token, expiresAt) =>
             applyShareChange(active.id, token, expiresAt)
           }
+        />
+      ) : null}
+
+      {active?.cvStoragePath ? (
+        <TailorDialog
+          open={tailorOpen}
+          getCv={() =>
+            downloadStoredCv(supabase, active.cvStoragePath!).then(
+              (blob) =>
+                new File([blob], active.data.cvFilename ?? "cv.pdf", {
+                  type: "application/pdf",
+                }),
+            )
+          }
+          jobOffer={active.jobOffer}
+          jobTitle={active.data.jobTitle ?? null}
+          onClose={() => setTailorOpen(false)}
         />
       ) : null}
     </div>
