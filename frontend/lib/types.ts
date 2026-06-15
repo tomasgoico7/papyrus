@@ -53,6 +53,11 @@ export interface EducationItem {
   period: string;
 }
 
+export interface CvSection {
+  title: string;
+  items: string[];
+}
+
 /** A CV rewritten for a specific posting, grounded in the user's real data. */
 export interface TailoredCv {
   fullName: string;
@@ -62,6 +67,7 @@ export interface TailoredCv {
   experience: ExperienceItem[];
   skills: string[];
   education: EducationItem[];
+  additional: CvSection[];
 }
 
 /** A persisted analysis as surfaced to the dashboard history. */

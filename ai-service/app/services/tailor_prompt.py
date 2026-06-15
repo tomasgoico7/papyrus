@@ -45,6 +45,9 @@ CV reads well to both applicant-tracking systems and human recruiters.
 emphasising what matters for this role.
 - Never drop a genuine skill the candidate lists. Keep the entire real skill set; \
 you may only reorder it so the most role-relevant skills come first.
+- Preserve every other real section the CV has — languages, certifications, \
+projects, awards — in the additional sections, keeping their real entries. Never \
+silently drop a section the candidate included.
 
 Length and formatting:
 - Keep each role to its three or four strongest, most relevant bullet points.

@@ -462,6 +462,16 @@ function CvPreview({ cv }: { cv: TailoredCv }) {
             </div>
           </Section>
         ) : null}
+
+        {cv.additional.map((sec, index) =>
+          sec.items.length > 0 ? (
+            <Section key={index} title={sec.title}>
+              <p className="text-sm leading-relaxed text-ink-muted">
+                {sec.items.join("  ·  ")}
+              </p>
+            </Section>
+          ) : null,
+        )}
       </div>
     </article>
   );

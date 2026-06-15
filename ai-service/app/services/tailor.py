@@ -10,6 +10,7 @@ from app.schemas.tailor import (
     LLMQuestions,
     LLMTailoredCV,
     Locale,
+    Section,
     TailoredCV,
     TailoringAnswer,
     TailoringQuestion,
@@ -129,5 +130,9 @@ class CVTailor:
                     period=item.period,
                 )
                 for item in raw.education
+            ],
+            additional=[
+                Section(title=item.title, items=item.items)
+                for item in raw.additional
             ],
         )

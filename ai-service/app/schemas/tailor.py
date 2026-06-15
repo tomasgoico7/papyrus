@@ -69,6 +69,11 @@ class _LLMEducation(BaseModel):
     period: str
 
 
+class _LLMSection(BaseModel):
+    title: str = Field(description="The section heading from the CV, e.g. Languages.")
+    items: list[str] = Field(description="The section's real entries.")
+
+
 class LLMTailoredCV(BaseModel):
     full_name: str
     contact: str = Field(
@@ -83,6 +88,11 @@ class LLMTailoredCV(BaseModel):
         "'Backend: Node.js, Java, Go'. One string per group.",
     )
     education: list[_LLMEducation]
+    additional: list[_LLMSection] = Field(
+        default_factory=list,
+        description="Any other real sections from the CV worth keeping — languages, "
+        "certifications, projects, awards — each with its real entries. Empty if none.",
+    )
 
 
 class ExperienceItem(CamelModel):
@@ -98,6 +108,11 @@ class EducationItem(CamelModel):
     period: str
 
 
+class Section(CamelModel):
+    title: str
+    items: list[str]
+
+
 class TailoredCV(CamelModel):
     full_name: str
     contact: str
@@ -106,3 +121,4 @@ class TailoredCV(CamelModel):
     experience: list[ExperienceItem]
     skills: list[str]
     education: list[EducationItem]
+    additional: list[Section]

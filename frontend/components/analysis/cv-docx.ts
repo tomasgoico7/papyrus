@@ -120,6 +120,16 @@ export async function downloadTailoredCvDocx(
     }
   }
 
+  for (const section of cv.additional) {
+    if (section.items.length === 0) continue;
+    children.push(sectionTitle(section.title));
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: section.items.join("  ·  "), size: 21 })],
+      }),
+    );
+  }
+
   const doc = new Document({ sections: [{ children }] });
   const blob = await Packer.toBlob(doc);
 

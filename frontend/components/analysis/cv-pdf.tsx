@@ -157,6 +157,15 @@ function CvDoc({ cv, labels }: { cv: TailoredCv; labels: CvLabels }) {
             ))}
           </View>
         ) : null}
+
+        {cv.additional.map((sec, index) =>
+          sec.items.length > 0 ? (
+            <View key={index} style={styles.section}>
+              <Text style={styles.sectionTitle}>{sec.title}</Text>
+              <Text style={styles.skillLine}>{sec.items.join("  ·  ")}</Text>
+            </View>
+          ) : null,
+        )}
       </Page>
     </Document>
   );
