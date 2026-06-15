@@ -29,53 +29,68 @@ const COLOR = {
 
 const styles = StyleSheet.create({
   page: {
-    paddingVertical: 44,
-    paddingHorizontal: 52,
+    paddingVertical: 34,
+    paddingHorizontal: 46,
     fontFamily: "Helvetica",
-    fontSize: 10,
+    fontSize: 9.5,
     color: COLOR.ink,
-    lineHeight: 1.5,
+    lineHeight: 1.4,
   },
-  name: { fontSize: 22, fontFamily: "Helvetica-Bold" },
-  headline: { fontSize: 11, color: COLOR.accent, marginTop: 2 },
-  contact: { fontSize: 9, color: COLOR.inkFaint, marginTop: 4 },
+  name: { fontSize: 18, fontFamily: "Helvetica-Bold" },
+  headline: { fontSize: 10.5, color: COLOR.accent, marginTop: 2 },
+  contact: { fontSize: 8.5, color: COLOR.inkFaint, marginTop: 3 },
   rule: {
     borderBottomWidth: 1,
     borderBottomColor: COLOR.line,
-    marginTop: 16,
-    marginBottom: 16,
+    marginTop: 11,
+    marginBottom: 11,
   },
   sectionTitle: {
-    fontSize: 8.5,
+    fontSize: 8,
     fontFamily: "Helvetica-Bold",
     color: COLOR.inkFaint,
     textTransform: "uppercase",
     letterSpacing: 1.2,
-    marginBottom: 8,
+    marginBottom: 5,
   },
-  section: { marginBottom: 18 },
-  summary: { fontSize: 10.5, lineHeight: 1.6 },
-  entry: { marginBottom: 12 },
+  section: { marginBottom: 11 },
+  summary: { fontSize: 10, lineHeight: 1.45 },
+  entry: { marginBottom: 8 },
   entryHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
-  role: { fontSize: 11, fontFamily: "Helvetica-Bold", flex: 1, paddingRight: 12 },
-  period: { fontSize: 9, color: COLOR.inkFaint },
-  company: { fontSize: 10, color: COLOR.inkMuted, marginTop: 1 },
-  bulletRow: { flexDirection: "row", marginTop: 4, paddingRight: 6 },
-  bulletDot: { width: 10, fontSize: 10, color: COLOR.inkFaint },
-  bulletText: { flex: 1, fontSize: 9.5, color: COLOR.inkMuted, lineHeight: 1.5 },
-  skills: { fontSize: 10, color: COLOR.inkMuted, lineHeight: 1.6 },
+  role: { fontSize: 10.5, fontFamily: "Helvetica-Bold", flex: 1, paddingRight: 12 },
+  period: { fontSize: 8.5, color: COLOR.inkFaint },
+  company: { fontSize: 9.5, color: COLOR.inkMuted, marginTop: 1 },
+  bulletRow: { flexDirection: "row", marginTop: 2.5, paddingRight: 4 },
+  bulletDot: { width: 9, fontSize: 9.5, color: COLOR.inkFaint },
+  bulletText: { flex: 1, fontSize: 9.5, color: COLOR.inkMuted, lineHeight: 1.4 },
+  skillLine: { fontSize: 9.5, color: COLOR.inkMuted, marginBottom: 2.5 },
+  skillLabel: { fontFamily: "Helvetica-Bold", color: COLOR.ink },
   eduRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  degree: { fontSize: 10, flex: 1, paddingRight: 12 },
+  degree: { fontSize: 9.5, flex: 1, paddingRight: 12 },
   institution: { color: COLOR.inkMuted },
 });
+
+// Skill lines arrive as "Group: a, b, c"; bold the label up to the first colon.
+function SkillLine({ value }: { value: string }) {
+  const split = value.indexOf(":");
+  if (split === -1) {
+    return <Text style={styles.skillLine}>{value}</Text>;
+  }
+  return (
+    <Text style={styles.skillLine}>
+      <Text style={styles.skillLabel}>{value.slice(0, split + 1)}</Text>
+      {value.slice(split + 1)}
+    </Text>
+  );
+}
 
 function CvDoc({ cv, labels }: { cv: TailoredCv; labels: CvLabels }) {
   return (
@@ -120,7 +135,9 @@ function CvDoc({ cv, labels }: { cv: TailoredCv; labels: CvLabels }) {
         {cv.skills.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{labels.skills}</Text>
-            <Text style={styles.skills}>{cv.skills.join("  ·  ")}</Text>
+            {cv.skills.map((skill, index) => (
+              <SkillLine key={index} value={skill} />
+            ))}
           </View>
         ) : null}
 

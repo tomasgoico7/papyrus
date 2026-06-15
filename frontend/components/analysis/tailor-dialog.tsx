@@ -417,9 +417,28 @@ function CvPreview({ cv }: { cv: TailoredCv }) {
 
         {cv.skills.length > 0 ? (
           <Section title={t.tailor.secSkills}>
-            <p className="text-sm leading-relaxed text-ink-muted">
-              {cv.skills.join("  ·  ")}
-            </p>
+            <div className="space-y-1">
+              {cv.skills.map((group, index) => {
+                const split = group.indexOf(":");
+                return (
+                  <p
+                    key={index}
+                    className="text-sm leading-relaxed text-ink-muted"
+                  >
+                    {split === -1 ? (
+                      group
+                    ) : (
+                      <>
+                        <span className="font-medium text-ink">
+                          {group.slice(0, split + 1)}
+                        </span>
+                        {group.slice(split + 1)}
+                      </>
+                    )}
+                  </p>
+                );
+              })}
+            </div>
           </Section>
         ) : null}
 

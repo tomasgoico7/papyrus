@@ -39,16 +39,25 @@ What you may and should do:
 - Reword and reorder so the experience most relevant to this posting comes first.
 - Use the posting's own terminology for skills the candidate genuinely has, so the \
 CV reads well to both applicant-tracking systems and human recruiters.
-- Weave the candidate's answers into the relevant roles or the skills list.
+- Weave the candidate's answers into the relevant roles or the skills section.
 - Quantify only with numbers already present in the sources.
 - Keep the candidate's full real work history — a CV must be complete — while \
 emphasising what matters for this role.
+- Never drop a genuine skill the candidate lists. Keep the entire real skill set; \
+you may only reorder it so the most role-relevant skills come first.
+
+Length and formatting:
+- Keep each role to its three or four strongest, most relevant bullet points.
+- Group skills into a few short labelled lines, most role-relevant group first, \
+each line formatted as "Group: skill, skill, skill" (for example \
+"Backend: Node.js, Java, Go"). Return one string per group in the skills list.
 
 Write the ENTIRE CV in the same language as the job posting. Produce a clean, \
 concise, professional result: a short headline aligned to the role, a two-to-four \
 sentence summary, experience entries with tight achievement-focused bullet points, \
-a skills list, and education. Carry the candidate's name and contact line over from \
-the CV without changes."""
+the grouped skills section, and education. Carry the candidate's name and contact \
+line over from the CV without changes, and aim to fit a single page when the \
+candidate's history reasonably allows it."""
 
 TAILOR_HUMAN = """Role title: {job_title}
 

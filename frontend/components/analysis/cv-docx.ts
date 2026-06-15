@@ -89,11 +89,17 @@ export async function downloadTailoredCvDocx(
 
   if (cv.skills.length > 0) {
     children.push(sectionTitle(labels.skills));
-    children.push(
-      new Paragraph({
-        children: [new TextRun({ text: cv.skills.join("  ·  "), size: 21 })],
-      }),
-    );
+    for (const group of cv.skills) {
+      const split = group.indexOf(":");
+      const runs =
+        split === -1
+          ? [new TextRun({ text: group, size: 21 })]
+          : [
+              new TextRun({ text: group.slice(0, split + 1), bold: true, size: 21 }),
+              new TextRun({ text: group.slice(split + 1), size: 21 }),
+            ];
+      children.push(new Paragraph({ spacing: { after: 30 }, children: runs }));
+    }
   }
 
   if (cv.education.length > 0) {

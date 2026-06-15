@@ -78,7 +78,10 @@ class LLMTailoredCV(BaseModel):
     headline: str = Field(description="A short professional title aligned to the role.")
     summary: str = Field(description="A tailored professional summary, 2-4 sentences.")
     experience: list[_LLMExperience]
-    skills: list[str]
+    skills: list[str] = Field(
+        description="The full real skill set, grouped into a few labelled lines like "
+        "'Backend: Node.js, Java, Go'. One string per group.",
+    )
     education: list[_LLMEducation]
 
 
