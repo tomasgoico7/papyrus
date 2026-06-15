@@ -13,7 +13,7 @@ import {
 import { useI18n } from "@/lib/i18n/context";
 import { createClient } from "@/lib/supabase/client";
 import type { TailoredCv, TailoringAnswer, TailoringQuestion } from "@/lib/types";
-import { cn, slugify } from "@/lib/utils";
+import { cn, cvFileName } from "@/lib/utils";
 
 type Step = "loading" | "questions" | "generating" | "result" | "error";
 
@@ -138,7 +138,7 @@ export function TailorDialog({
         skills: t.tailor.secSkills,
         education: t.tailor.secEducation,
       };
-      const base = `papyrus-cv-${slugify(jobTitle || cv.fullName)}`;
+      const base = cvFileName(cv.fullName);
       if (format === "pdf") {
         const { downloadTailoredCvPdf } = await import(
           "@/components/analysis/cv-pdf"

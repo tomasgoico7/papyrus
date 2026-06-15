@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDate, slugify } from "@/lib/utils";
+import { cvFileName, formatDate, slugify } from "@/lib/utils";
 
 describe("formatDate", () => {
   it("formats English dates as 'Mon D, YYYY'", () => {
@@ -41,5 +41,23 @@ describe("slugify", () => {
 
   it("caps the length at 50 characters", () => {
     expect(slugify("a".repeat(80))).toHaveLength(50);
+  });
+});
+
+describe("cvFileName", () => {
+  it("builds Name_Surname_CV from a full name", () => {
+    expect(cvFileName("Tomás Goicoechea")).toBe("Tomas_Goicoechea_CV");
+  });
+
+  it("preserves the source casing", () => {
+    expect(cvFileName("TOMÁS GOICOECHEA")).toBe("TOMAS_GOICOECHEA_CV");
+  });
+
+  it("collapses punctuation and extra spaces", () => {
+    expect(cvFileName("  Anne-Marie   O'Neil ")).toBe("Anne_Marie_O_Neil_CV");
+  });
+
+  it("falls back to CV when the name has no letters", () => {
+    expect(cvFileName("—")).toBe("CV");
   });
 });

@@ -23,6 +23,16 @@ export function formatDate(iso: string, locale: Locale = "en"): string {
   return locale === "en" ? `${month} ${day}, ${year}` : `${day} ${month} ${year}`;
 }
 
+/** Builds a professional CV filename from a name, e.g. "Tomas_Goicoechea_CV". */
+export function cvFileName(fullName: string): string {
+  const cleaned = fullName
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  return cleaned ? `${cleaned.split(/\s+/).join("_")}_CV` : "CV";
+}
+
 /** Turns arbitrary text into a filename-safe, accent-free slug. */
 export function slugify(value: string): string {
   return (
