@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cvFileName, formatDate, slugify } from "@/lib/utils";
+import { cvFileName, formatDate, slugify, splitLabel } from "@/lib/utils";
 
 describe("formatDate", () => {
   it("formats English dates as 'Mon D, YYYY'", () => {
@@ -59,5 +59,22 @@ describe("cvFileName", () => {
 
   it("falls back to CV when the name has no letters", () => {
     expect(cvFileName("—")).toBe("CV");
+  });
+});
+
+describe("splitLabel", () => {
+  it("splits a label from the rest on the first colon", () => {
+    expect(splitLabel("Backend: Go, Java")).toEqual({
+      label: "Backend:",
+      rest: " Go, Java",
+    });
+  });
+
+  it("splits only on the first colon", () => {
+    expect(splitLabel("Tools: a: b")).toEqual({ label: "Tools:", rest: " a: b" });
+  });
+
+  it("returns null when there is no colon", () => {
+    expect(splitLabel("Just a plain line")).toBeNull();
   });
 });

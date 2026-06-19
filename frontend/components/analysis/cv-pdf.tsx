@@ -9,6 +9,7 @@ import {
 } from "@react-pdf/renderer";
 
 import type { TailoredCv } from "@/lib/types";
+import { splitLabel } from "@/lib/utils";
 
 export interface CvLabels {
   summary: string;
@@ -102,14 +103,14 @@ function joinMeta(parts: (string | undefined)[]): string {
 
 // Skill lines arrive as "Group: a, b, c"; bold the label up to the first colon.
 function SkillLine({ value, styles }: { value: string; styles: Styles }) {
-  const split = value.indexOf(":");
-  if (split === -1) {
+  const parts = splitLabel(value);
+  if (!parts) {
     return <Text style={styles.skillLine}>{value}</Text>;
   }
   return (
     <Text style={styles.skillLine}>
-      <Text style={styles.skillLabel}>{value.slice(0, split + 1)}</Text>
-      {value.slice(split + 1)}
+      <Text style={styles.skillLabel}>{parts.label}</Text>
+      {parts.rest}
     </Text>
   );
 }

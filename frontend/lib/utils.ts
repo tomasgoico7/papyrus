@@ -23,6 +23,18 @@ export function formatDate(iso: string, locale: Locale = "en"): string {
   return locale === "en" ? `${month} ${day}, ${year}` : `${day} ${month} ${year}`;
 }
 
+/**
+ * Splits a "Label: rest" line into its bold label and the remainder, or null
+ * when there is no colon. Used to render grouped skill lines on the CV.
+ */
+export function splitLabel(
+  value: string,
+): { label: string; rest: string } | null {
+  const index = value.indexOf(":");
+  if (index === -1) return null;
+  return { label: value.slice(0, index + 1), rest: value.slice(index + 1) };
+}
+
 /** Builds a professional CV filename from a name, e.g. "Tomas_Goicoechea_CV". */
 export function cvFileName(fullName: string): string {
   const cleaned = fullName

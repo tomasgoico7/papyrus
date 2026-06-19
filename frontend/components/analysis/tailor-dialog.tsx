@@ -13,7 +13,7 @@ import {
 import { useI18n } from "@/lib/i18n/context";
 import { createClient } from "@/lib/supabase/client";
 import type { TailoredCv, TailoringAnswer, TailoringQuestion } from "@/lib/types";
-import { cn, cvFileName } from "@/lib/utils";
+import { cn, cvFileName, splitLabel } from "@/lib/utils";
 
 type Step = "loading" | "questions" | "generating" | "result" | "error";
 
@@ -438,21 +438,21 @@ function CvPreview({ cv }: { cv: TailoredCv }) {
           <Section title={t.tailor.secSkills}>
             <div className="space-y-1">
               {cv.skills.map((group, index) => {
-                const split = group.indexOf(":");
+                const parts = splitLabel(group);
                 return (
                   <p
                     key={index}
                     className="text-sm leading-relaxed text-ink-muted"
                   >
-                    {split === -1 ? (
-                      group
-                    ) : (
+                    {parts ? (
                       <>
                         <span className="font-medium text-ink">
-                          {group.slice(0, split + 1)}
+                          {parts.label}
                         </span>
-                        {group.slice(split + 1)}
+                        {parts.rest}
                       </>
+                    ) : (
+                      group
                     )}
                   </p>
                 );

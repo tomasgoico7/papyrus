@@ -2,6 +2,7 @@ import { Document, Packer, Paragraph, TextRun } from "docx";
 
 import type { CvLabels } from "@/components/analysis/cv-pdf";
 import type { TailoredCv } from "@/lib/types";
+import { splitLabel } from "@/lib/utils";
 
 const ACCENT = "0072E6";
 const FAINT = "8A8D94";
@@ -90,14 +91,13 @@ export async function downloadTailoredCvDocx(
   if (cv.skills.length > 0) {
     children.push(sectionTitle(labels.skills));
     for (const group of cv.skills) {
-      const split = group.indexOf(":");
-      const runs =
-        split === -1
-          ? [new TextRun({ text: group, size: 21 })]
-          : [
-              new TextRun({ text: group.slice(0, split + 1), bold: true, size: 21 }),
-              new TextRun({ text: group.slice(split + 1), size: 21 }),
-            ];
+      const parts = splitLabel(group);
+      const runs = parts
+        ? [
+            new TextRun({ text: parts.label, bold: true, size: 21 }),
+            new TextRun({ text: parts.rest, size: 21 }),
+          ]
+        : [new TextRun({ text: group, size: 21 })];
       children.push(new Paragraph({ spacing: { after: 30 }, children: runs }));
     }
   }
