@@ -17,6 +17,16 @@ export interface CvLabels {
   education: string;
 }
 
+// Inter (embedded) gives full Unicode coverage and a modern, professional look,
+// where the built-in Helvetica is dated and limited to Latin-1.
+Font.register({
+  family: "Inter",
+  fonts: [
+    { src: "/fonts/Inter-Regular.ttf", fontWeight: 400 },
+    { src: "/fonts/Inter-SemiBold.ttf", fontWeight: 600 },
+    { src: "/fonts/Inter-Bold.ttf", fontWeight: 700 },
+  ],
+});
 Font.registerHyphenationCallback((word) => [word]);
 
 const COLOR = {
@@ -29,14 +39,14 @@ const COLOR = {
 
 const styles = StyleSheet.create({
   page: {
-    paddingVertical: 34,
-    paddingHorizontal: 46,
-    fontFamily: "Helvetica",
+    paddingVertical: 36,
+    paddingHorizontal: 48,
+    fontFamily: "Inter",
     fontSize: 9.5,
     color: COLOR.ink,
-    lineHeight: 1.4,
+    lineHeight: 1.45,
   },
-  name: { fontSize: 19, fontFamily: "Helvetica-Bold", letterSpacing: 0.3 },
+  name: { fontSize: 19, fontWeight: 700, letterSpacing: 0.2 },
   headline: { fontSize: 10.5, color: COLOR.accent, marginTop: 4 },
   contact: { fontSize: 8.5, color: COLOR.inkFaint, marginTop: 6, lineHeight: 1.4 },
   rule: {
@@ -47,36 +57,33 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 8,
-    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: COLOR.inkFaint,
     textTransform: "uppercase",
     letterSpacing: 1.2,
-    marginBottom: 5,
+    marginBottom: 6,
   },
-  section: { marginBottom: 11 },
-  summary: { fontSize: 10, lineHeight: 1.45 },
-  entry: { marginBottom: 8 },
-  entryHead: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  role: { fontSize: 10.5, fontFamily: "Helvetica-Bold", flex: 1, paddingRight: 12 },
-  period: { fontSize: 8.5, color: COLOR.inkFaint },
-  company: { fontSize: 9.5, color: COLOR.inkMuted, marginTop: 1 },
-  bulletRow: { flexDirection: "row", marginTop: 2.5, paddingRight: 4 },
+  section: { marginBottom: 12 },
+  summary: { fontSize: 9.5, color: COLOR.inkMuted, lineHeight: 1.5 },
+  entry: { marginBottom: 9 },
+  role: { fontSize: 10.5, fontWeight: 600 },
+  // Company and dates share one line in a single text flow — unambiguous for ATS
+  // parsers, which can mis-order text split across flex columns.
+  metaLine: { fontSize: 9, color: COLOR.inkFaint, marginTop: 1 },
+  bulletRow: { flexDirection: "row", marginTop: 3, paddingRight: 4 },
   bulletDot: { width: 9, fontSize: 9.5, color: COLOR.inkFaint },
-  bulletText: { flex: 1, fontSize: 9.5, color: COLOR.inkMuted, lineHeight: 1.4 },
+  bulletText: { flex: 1, fontSize: 9.5, color: COLOR.inkMuted, lineHeight: 1.45 },
   skillLine: { fontSize: 9.5, color: COLOR.inkMuted, marginBottom: 2.5 },
-  skillLabel: { fontFamily: "Helvetica-Bold", color: COLOR.ink },
-  eduRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 3,
-  },
-  degree: { fontSize: 9.5, flex: 1, paddingRight: 12 },
-  institution: { color: COLOR.inkMuted },
+  skillLabel: { fontWeight: 600, color: COLOR.ink },
+  eduLine: { fontSize: 9.5, marginBottom: 3 },
+  eduDegree: { fontWeight: 600 },
+  eduMeta: { color: COLOR.inkMuted },
+  extraItem: { fontSize: 9.5, color: COLOR.inkMuted, marginBottom: 2.5 },
 });
+
+function joinMeta(parts: (string | undefined)[]): string {
+  return parts.filter((part) => part && part.trim()).join("  ·  ");
+}
 
 // Skill lines arrive as "Group: a, b, c"; bold the label up to the first colon.
 function SkillLine({ value }: { value: string }) {
@@ -116,11 +123,10 @@ function CvDoc({ cv, labels }: { cv: TailoredCv; labels: CvLabels }) {
             <Text style={styles.sectionTitle}>{labels.experience}</Text>
             {cv.experience.map((item, index) => (
               <View key={index} style={styles.entry} wrap={false}>
-                <View style={styles.entryHead}>
-                  <Text style={styles.role}>{item.role}</Text>
-                  <Text style={styles.period}>{item.period}</Text>
-                </View>
-                <Text style={styles.company}>{item.company}</Text>
+                <Text style={styles.role}>{item.role}</Text>
+                <Text style={styles.metaLine}>
+                  {joinMeta([item.company, item.period])}
+                </Text>
                 {item.highlights.map((highlight, hi) => (
                   <View key={hi} style={styles.bulletRow}>
                     <Text style={styles.bulletDot}>•</Text>
@@ -144,25 +150,27 @@ function CvDoc({ cv, labels }: { cv: TailoredCv; labels: CvLabels }) {
         {cv.education.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{labels.education}</Text>
-            {cv.education.map((item, index) => (
-              <View key={index} style={styles.eduRow}>
-                <Text style={styles.degree}>
-                  {item.degree}
-                  {item.institution ? (
-                    <Text style={styles.institution}> — {item.institution}</Text>
-                  ) : null}
+            {cv.education.map((item, index) => {
+              const meta = joinMeta([item.institution, item.period]);
+              return (
+                <Text key={index} style={styles.eduLine}>
+                  <Text style={styles.eduDegree}>{item.degree}</Text>
+                  {meta ? <Text style={styles.eduMeta}>{`  ·  ${meta}`}</Text> : null}
                 </Text>
-                <Text style={styles.period}>{item.period}</Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
         ) : null}
 
         {cv.additional.map((sec, index) =>
           sec.items.length > 0 ? (
-            <View key={index} style={styles.section}>
+            <View key={index} style={styles.section} wrap={false}>
               <Text style={styles.sectionTitle}>{sec.title}</Text>
-              <Text style={styles.skillLine}>{sec.items.join("  ·  ")}</Text>
+              {sec.items.map((entry, ei) => (
+                <Text key={ei} style={styles.extraItem}>
+                  {entry}
+                </Text>
+              ))}
             </View>
           ) : null,
         )}

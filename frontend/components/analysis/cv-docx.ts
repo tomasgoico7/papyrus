@@ -123,11 +123,14 @@ export async function downloadTailoredCvDocx(
   for (const section of cv.additional) {
     if (section.items.length === 0) continue;
     children.push(sectionTitle(section.title));
-    children.push(
-      new Paragraph({
-        children: [new TextRun({ text: section.items.join("  ·  "), size: 21 })],
-      }),
-    );
+    for (const entry of section.items) {
+      children.push(
+        new Paragraph({
+          spacing: { after: 20 },
+          children: [new TextRun({ text: entry, size: 21 })],
+        }),
+      );
+    }
   }
 
   const doc = new Document({ sections: [{ children }] });
