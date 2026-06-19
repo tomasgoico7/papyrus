@@ -29,6 +29,7 @@ interface AnalysisViewProps {
   onDownloadCv?: () => void;
   onShare?: () => void;
   onTailor?: () => void;
+  hasTailoredCv?: boolean;
 }
 
 export function AnalysisView({
@@ -36,6 +37,7 @@ export function AnalysisView({
   onDownloadCv,
   onShare,
   onTailor,
+  hasTailoredCv,
 }: AnalysisViewProps) {
   const { t, locale } = useI18n();
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -94,7 +96,7 @@ export function AnalysisView({
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-accent transition-opacity hover:opacity-70"
               >
                 <Wand2 className="h-4 w-4" aria-hidden />
-                {t.tailor.button}
+                {hasTailoredCv ? t.tailor.viewButton : t.tailor.button}
               </button>
             ) : null}
             <button

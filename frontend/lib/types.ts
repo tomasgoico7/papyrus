@@ -86,6 +86,7 @@ export interface AnalysisRecord {
   createdAt: string;
   shareToken: string | null;
   shareExpiresAt: string | null;
+  tailoredCv: TailoredCv | null;
 }
 
 export interface AuthenticatedUser {

@@ -117,6 +117,8 @@ export interface Dictionary {
   };
   tailor: {
     button: string;
+    viewButton: string;
+    readapt: string;
     dialogTitle: string;
     step1Intro: string;
     loadingQuestions: string;
@@ -281,6 +283,8 @@ const en: Dictionary = {
   },
   tailor: {
     button: "Tailor my CV",
+    viewButton: "View tailored CV",
+    readapt: "Adapt again",
     dialogTitle: "Tailor your CV to the role",
     step1Intro:
       "So nothing gets invented, answer with real experience. Anything you mark as “I don't have this” simply won't be added.",
@@ -451,6 +455,8 @@ const es: Dictionary = {
   },
   tailor: {
     button: "Adaptar mi CV",
+    viewButton: "Ver CV adaptado",
+    readapt: "Volver a adaptar",
     dialogTitle: "Adaptá tu CV al puesto",
     step1Intro:
       "Para no inventar nada, respondé con experiencia real. Lo que marques como “No tengo esto” simplemente no se agrega.",

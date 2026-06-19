@@ -21,6 +21,7 @@ import {
   deleteAnalysis,
   listAnalyses,
   saveAnalysis,
+  saveTailoredCv,
 } from "@/lib/analyses/repository";
 import { GatewayError, localizeGatewayError, requestAnalysis } from "@/lib/api/gateway";
 import {
@@ -34,7 +35,7 @@ import {
 import { MAX_UPLOAD_MB } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
 import { createClient } from "@/lib/supabase/client";
-import type { AnalysisRecord } from "@/lib/types";
+import type { AnalysisRecord, TailoredCv } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Status = "idle" | "analyzing" | "ready" | "error";
@@ -48,6 +49,7 @@ interface ActiveAnalysis {
   cvStoragePath: string | null;
   shareToken: string | null;
   shareExpiresAt: string | null;
+  tailoredCv: TailoredCv | null;
 }
 
 function toView(record: AnalysisRecord): AnalysisViewData {
@@ -214,6 +216,7 @@ export function Workspace({ userId }: { userId: string }) {
         cvStoragePath: record.cvStoragePath,
         shareToken: record.shareToken,
         shareExpiresAt: record.shareExpiresAt,
+        tailoredCv: record.tailoredCv,
       });
       setStatus("ready");
     } catch (error) {
@@ -235,6 +238,7 @@ export function Workspace({ userId }: { userId: string }) {
       cvStoragePath: record.cvStoragePath,
       shareToken: record.shareToken,
       shareExpiresAt: record.shareExpiresAt,
+      tailoredCv: record.tailoredCv,
     });
     setStatus("ready");
     setView("result");
@@ -263,6 +267,22 @@ export function Workspace({ userId }: { userId: string }) {
           : record,
       ),
     );
+  }
+
+  async function handleTailorSaved(id: string, tailoredCv: TailoredCv) {
+    setActive((previous) =>
+      previous && previous.id === id ? { ...previous, tailoredCv } : previous,
+    );
+    setHistory((previous) =>
+      previous.map((record) =>
+        record.id === id ? { ...record, tailoredCv } : record,
+      ),
+    );
+    try {
+      await saveTailoredCv(supabase, id, tailoredCv);
+    } catch (error) {
+      console.error("Failed to persist tailored CV:", error);
+    }
   }
 
   async function downloadCv(storagePath: string) {
@@ -379,6 +399,7 @@ export function Workspace({ userId }: { userId: string }) {
                     onTailor={
                       active.cvStoragePath ? () => setTailorOpen(true) : undefined
                     }
+                    hasTailoredCv={active.tailoredCv !== null}
                   />
                 </div>
               ) : (
@@ -415,6 +436,8 @@ export function Workspace({ userId }: { userId: string }) {
           }
           jobOffer={active.jobOffer}
           jobTitle={active.data.jobTitle ?? null}
+          savedCv={active.tailoredCv}
+          onSaved={(cv) => handleTailorSaved(active.id, cv)}
           onClose={() => setTailorOpen(false)}
         />
       ) : null}

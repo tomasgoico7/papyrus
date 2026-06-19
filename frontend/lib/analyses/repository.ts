@@ -7,6 +7,7 @@ import type {
   Localized,
   LocalizedList,
   Suggestion,
+  TailoredCv,
 } from "@/lib/types";
 
 interface AnalysisRow {
@@ -23,11 +24,12 @@ interface AnalysisRow {
   created_at: string;
   share_token: string | null;
   share_expires_at: string | null;
+  tailored_cv: TailoredCv | null;
   cvs: { storage_path: string | null } | null;
 }
 
 const SELECT =
-  "id, job_title, job_offer, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, share_token, share_expires_at, cvs ( storage_path )";
+  "id, job_title, job_offer, cv_filename, score, verdict, summary, matched_skills, missing_skills, suggestions, created_at, share_token, share_expires_at, tailored_cv, cvs ( storage_path )";
 
 function toRecord(row: AnalysisRow): AnalysisRecord {
   return {
@@ -45,6 +47,7 @@ function toRecord(row: AnalysisRow): AnalysisRecord {
     createdAt: row.created_at,
     shareToken: row.share_token,
     shareExpiresAt: row.share_expires_at,
+    tailoredCv: row.tailored_cv ?? null,
   };
 }
 
@@ -110,6 +113,20 @@ export async function deleteAnalysis(
   const { error } = await supabase.from("analyses").delete().eq("id", id);
   if (error) {
     throw new Error(`Failed to delete analysis: ${error.message}`);
+  }
+}
+
+export async function saveTailoredCv(
+  supabase: SupabaseClient,
+  analysisId: string,
+  tailoredCv: TailoredCv,
+): Promise<void> {
+  const { error } = await supabase
+    .from("analyses")
+    .update({ tailored_cv: tailoredCv })
+    .eq("id", analysisId);
+  if (error) {
+    throw new Error(`Failed to save tailored CV: ${error.message}`);
   }
 }
 

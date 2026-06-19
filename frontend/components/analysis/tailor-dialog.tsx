@@ -22,6 +22,8 @@ interface TailorDialogProps {
   getCv: () => Promise<File>;
   jobOffer: string;
   jobTitle: string | null;
+  savedCv: TailoredCv | null;
+  onSaved: (cv: TailoredCv) => void;
   onClose: () => void;
 }
 
@@ -30,6 +32,8 @@ export function TailorDialog({
   getCv,
   jobOffer,
   jobTitle,
+  savedCv,
+  onSaved,
   onClose,
 }: TailorDialogProps) {
   const { t, locale } = useI18n();
@@ -43,6 +47,7 @@ export function TailorDialog({
   const [extra, setExtra] = useState("");
   const [cvText, setCvText] = useState("");
   const [cv, setCv] = useState<TailoredCv | null>(null);
+  const [questionsLoaded, setQuestionsLoaded] = useState(false);
   const [busyFormat, setBusyFormat] = useState<"pdf" | "docx" | null>(null);
 
   async function accessToken(): Promise<string> {
@@ -53,6 +58,29 @@ export function TailorDialog({
     return session.access_token;
   }
 
+  async function startQuestions() {
+    setStep("loading");
+    try {
+      const cvFile = await getCv();
+      const result = await requestTailoringQuestions({
+        cv: cvFile,
+        jobOffer,
+        jobTitle: jobTitle ?? undefined,
+        locale,
+        accessToken: await accessToken(),
+      });
+      setQuestions(result.questions);
+      setCvText(result.cvText);
+      setQuestionsLoaded(true);
+      setStep("questions");
+    } catch (error) {
+      console.error("Failed to prepare tailoring:", error);
+      setStep("error");
+    }
+  }
+
+  // On open: a previously saved CV is shown straight away (view / download /
+  // re-adapt); otherwise we go fetch the tailoring questions.
   useEffect(() => {
     if (!open) {
       startedRef.current = false;
@@ -61,31 +89,19 @@ export function TailorDialog({
     if (startedRef.current) return;
     startedRef.current = true;
 
-    setStep("loading");
     setQuestions([]);
     setAnswers({});
     setSkipped({});
     setExtra("");
-    setCv(null);
+    setQuestionsLoaded(false);
 
-    (async () => {
-      try {
-        const cvFile = await getCv();
-        const result = await requestTailoringQuestions({
-          cv: cvFile,
-          jobOffer,
-          jobTitle: jobTitle ?? undefined,
-          locale,
-          accessToken: await accessToken(),
-        });
-        setQuestions(result.questions);
-        setCvText(result.cvText);
-        setStep("questions");
-      } catch (error) {
-        console.error("Failed to prepare tailoring:", error);
-        setStep("error");
-      }
-    })();
+    if (savedCv) {
+      setCv(savedCv);
+      setStep("result");
+    } else {
+      setCv(null);
+      void startQuestions();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -122,6 +138,7 @@ export function TailorDialog({
       });
       setCv(result);
       setStep("result");
+      onSaved(result);
     } catch (error) {
       console.error("Failed to generate CV:", error);
       setStep("error");
@@ -235,11 +252,11 @@ export function TailorDialog({
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-6 py-4">
             <button
               type="button"
-              onClick={() => setStep("questions")}
+              onClick={questionsLoaded ? () => setStep("questions") : startQuestions}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden />
-              {t.tailor.back}
+              {questionsLoaded ? t.tailor.back : t.tailor.readapt}
             </button>
             <div className="flex items-center gap-2">
               <Button
@@ -373,7 +390,7 @@ function CvPreview({ cv }: { cv: TailoredCv }) {
         <header>
           <h3 className="text-2xl font-semibold tracking-tight">{cv.fullName}</h3>
           {cv.headline ? (
-            <p className="mt-1.5 text-sm font-medium text-accent">{cv.headline}</p>
+            <p className="mt-2 text-sm font-medium text-accent">{cv.headline}</p>
           ) : null}
           {cv.contact ? (
             <p className="mt-2.5 text-xs leading-relaxed text-ink-faint">
