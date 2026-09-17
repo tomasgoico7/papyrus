@@ -17,7 +17,7 @@ import (
 func newTailorEngine(aiURL string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	client := services.NewTailorClient(aiURL, "", &http.Client{})
-	handler := handlers.NewTailorHandler(client, 5<<20, 10*time.Second)
+	handler := handlers.NewTailorHandler(client, 5<<20, 10*time.Second, discardLogger())
 
 	engine := gin.New()
 	engine.POST("/tailor/questions", handler.Questions)

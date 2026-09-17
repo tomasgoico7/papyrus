@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -26,13 +26,15 @@ type AnalyzeHandler struct {
 	analyzer       *services.AnalyzerClient
 	maxUploadBytes int64
 	requestTimeout time.Duration
+	logger         *slog.Logger
 }
 
-func NewAnalyzeHandler(analyzer *services.AnalyzerClient, maxUploadBytes int64, requestTimeout time.Duration) *AnalyzeHandler {
+func NewAnalyzeHandler(analyzer *services.AnalyzerClient, maxUploadBytes int64, requestTimeout time.Duration, logger *slog.Logger) *AnalyzeHandler {
 	return &AnalyzeHandler{
 		analyzer:       analyzer,
 		maxUploadBytes: maxUploadBytes,
 		requestTimeout: requestTimeout,
+		logger:         logger,
 	}
 }
 
@@ -109,7 +111,7 @@ func (h *AnalyzeHandler) respondUpstream(c *gin.Context, err error) {
 		return
 	}
 
-	log.Printf("analyze: upstream failure: %v", err)
+	h.logger.Error("analyze upstream failure", slog.Any("error", err))
 	httpx.RespondError(c, http.StatusBadGateway, "upstream_unavailable", "The analysis service is temporarily unavailable.")
 }
 

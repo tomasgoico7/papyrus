@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,35 +15,70 @@ import (
 	"github.com/papyrus/gateway/internal/router"
 )
 
+const (
+	readHeaderTimeout = 10 * time.Second
+	shutdownTimeout   = 10 * time.Second
+)
+
 func main() {
+	if err := run(); err != nil {
+		slog.Error("gateway exited with an error", slog.Any("error", err))
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("configuration error: %v", err)
+		return fmt.Errorf("loading configuration: %w", err)
 	}
 
+	logger := newLogger(cfg)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           router.New(cfg),
-		ReadHeaderTimeout: 10 * time.Second,
+		Handler:           router.New(cfg, logger),
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
+	// Buffered: a failed listen must not block on a channel nobody reads once
+	// shutdown has already been triggered by a signal.
+	serverErr := make(chan error, 1)
 	go func() {
-		log.Printf("gateway listening on :%s (%s)", cfg.Port, cfg.Environment)
+		logger.Info("gateway listening",
+			slog.String("port", cfg.Port),
+			slog.String("environment", cfg.Environment),
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server error: %v", err)
+			serverErr <- err
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	log.Println("shutting down gateway…")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	select {
+	case err := <-serverErr:
+		return fmt.Errorf("serving: %w", err)
+	case <-quit:
+	}
+
+	logger.Info("shutting down gateway")
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("forced shutdown: %v", err)
+		return fmt.Errorf("graceful shutdown: %w", err)
 	}
-	log.Println("gateway stopped")
+
+	logger.Info("gateway stopped")
+	return nil
+}
+
+// newLogger writes text locally, where a person reads it, and JSON in
+// production, where a log aggregator does.
+func newLogger(cfg *config.Config) *slog.Logger {
+	if cfg.IsProduction() {
+		return slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	}
+	return slog.New(slog.NewTextHandler(os.Stdout, nil))
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -18,10 +19,16 @@ import (
 	"github.com/papyrus/gateway/internal/transport"
 )
 
+// discardLogger keeps handler output out of the test log; these tests assert on
+// responses, not on what was logged.
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func newEngine(aiURL string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	client := services.NewAnalyzerClient(aiURL, "", &http.Client{})
-	handler := handlers.NewAnalyzeHandler(client, 5<<20, 10*time.Second)
+	handler := handlers.NewAnalyzeHandler(client, 5<<20, 10*time.Second, discardLogger())
 
 	engine := gin.New()
 	engine.POST("/analyze", handler.Handle)

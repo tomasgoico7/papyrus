@@ -1,6 +1,7 @@
 package router
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,7 @@ import (
 	"github.com/papyrus/gateway/internal/services"
 )
 
-func New(cfg *config.Config) *gin.Engine {
+func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -22,9 +23,9 @@ func New(cfg *config.Config) *gin.Engine {
 	engine.Use(gin.Recovery(), middleware.CORS(cfg.AllowedOrigins))
 
 	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, cfg.AIServiceToken, &http.Client{})
-	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
+	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout, logger)
 	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, &http.Client{})
-	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)
+	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout, logger)
 	keySet := auth.NewKeySet(cfg.JWKSURL)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 
