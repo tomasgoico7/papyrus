@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from langchain_core.runnables import Runnable
 from starlette.concurrency import run_in_threadpool
@@ -23,7 +24,7 @@ def verdict_for(score: int) -> Verdict:
 
 
 class CVAnalyzer:
-    def __init__(self, chain: Runnable) -> None:
+    def __init__(self, chain: Runnable[dict[str, str], Any]) -> None:
         self._chain = chain
 
     @classmethod
@@ -33,7 +34,7 @@ class CVAnalyzer:
 
         model = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
-            google_api_key=settings.gemini_api_key,
+            api_key=settings.gemini_api_key,
             temperature=settings.gemini_temperature,
             transport="rest",  # the async gRPC/REST clients hang on some hosts
             timeout=settings.gemini_timeout,

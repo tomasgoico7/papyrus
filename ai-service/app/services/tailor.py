@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from langchain_core.runnables import Runnable
 from starlette.concurrency import run_in_threadpool
@@ -34,7 +35,11 @@ def _format_answers(answers: list[TailoringAnswer], extra: str | None) -> str:
 
 
 class CVTailor:
-    def __init__(self, questions_chain: Runnable, cv_chain: Runnable) -> None:
+    def __init__(
+        self,
+        questions_chain: Runnable[dict[str, str], Any],
+        cv_chain: Runnable[dict[str, str], Any],
+    ) -> None:
         self._questions_chain = questions_chain
         self._cv_chain = cv_chain
 
@@ -44,7 +49,7 @@ class CVTailor:
 
         model = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
-            google_api_key=settings.gemini_api_key,
+            api_key=settings.gemini_api_key,
             temperature=settings.gemini_temperature,
             transport="rest",
             timeout=settings.gemini_timeout,

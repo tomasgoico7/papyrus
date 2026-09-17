@@ -38,7 +38,7 @@ jobs:
           NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
 
   gateway:
-    name: gateway (build · vet · test)
+    name: gateway (fmt · build · vet · test)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,12 +49,14 @@ jobs:
         with:
           go-version: "1.25"
           cache-dependency-path: gateway/go.sum
+      - name: Verify gofmt
+        run: test -z "$(gofmt -l .)"
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
 
   ai-service:
-    name: ai-service (pytest)
+    name: ai-service (lint · typecheck · test)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -67,6 +69,8 @@ jobs:
           cache: pip
           cache-dependency-path: ai-service/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: mypy
       - run: pytest
         env:
           # The suite injects fakes and never calls the provider, but config

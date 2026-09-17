@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    gemini_api_key: str
+    gemini_api_key: SecretStr
     gemini_model: str = "gemini-2.5-flash"
     gemini_temperature: float = 0.2
     gemini_timeout: int = 45
@@ -27,4 +28,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # Every field is populated from the environment, which the type checker
+    # cannot see, so it reads the call as missing required arguments.
+    return Settings()  # type: ignore[call-arg]
