@@ -1,6 +1,4 @@
-import logging
-
-from fastapi import APIRouter, Depends, File, Form, Header, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import ApiError
@@ -11,28 +9,20 @@ from app.services.analyzer import CVAnalyzer
 from app.services.pdf_extractor import extract_text
 from app.services.tailor import CVTailor
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MIN_JOB_OFFER_LENGTH = 40
 ACCEPTED_PDF_TYPES = frozenset({"application/pdf", "application/octet-stream"})
 
-_analyzer: CVAnalyzer | None = None
-_tailor: CVTailor | None = None
+
+def get_analyzer(request: Request) -> CVAnalyzer:
+    analyzer: CVAnalyzer = request.app.state.analyzer
+    return analyzer
 
 
-def get_analyzer(settings: Settings = Depends(get_settings)) -> CVAnalyzer:
-    global _analyzer
-    if _analyzer is None:
-        _analyzer = CVAnalyzer.from_settings(settings)
-    return _analyzer
-
-
-def get_tailor(settings: Settings = Depends(get_settings)) -> CVTailor:
-    global _tailor
-    if _tailor is None:
-        _tailor = CVTailor.from_settings(settings)
-    return _tailor
+def get_tailor(request: Request) -> CVTailor:
+    tailor: CVTailor = request.app.state.tailor
+    return tailor
 
 
 def _normalize_locale(value: str) -> Locale:
