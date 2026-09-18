@@ -142,6 +142,7 @@ papyrus/
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, la cadena del modelo está fakeada
 ├── supabase/migrations/         # 0001 esquema+RLS, 0002 storage, 0003 bilingüe, 0004 compartir
+├── docs/adr/                    # registro de decisiones de arquitectura
 ├── ops/                         # config de Prometheus y dashboards de Grafana
 ├── load/                        # escenario de k6 + stub del servicio de IA
 ├── docker-compose.yml
@@ -417,6 +418,9 @@ Todos estos me costaron tiempo real mientras lo construía, así que vale la pen
 ---
 
 ## Decisiones y trade-offs
+
+El resumen está acá; el registro completo, una decisión por archivo con su contexto
+y sus consecuencias, vive en [`docs/adr/`](docs/adr/).
 
 Algunas elecciones que defiendo, y el costo de cada una:
 

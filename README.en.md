@@ -142,6 +142,7 @@ papyrus/
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, model chain is faked
 ├── supabase/migrations/         # 0001 schema+RLS, 0002 storage, 0003 bilingual, 0004 sharing
+├── docs/adr/                    # architecture decision records
 ├── ops/                         # Prometheus config and Grafana dashboards
 ├── load/                        # k6 scenario + AI-service stub
 ├── docker-compose.yml
@@ -416,6 +417,9 @@ These all cost me real time while building it, so they're worth writing down:
 ---
 
 ## Decisions and trade-offs
+
+The summary is here; the full log — one decision per file, with its context and
+consequences — lives in [`docs/adr/`](docs/adr/).
 
 A few choices I'd defend, and the cost of each:
 
