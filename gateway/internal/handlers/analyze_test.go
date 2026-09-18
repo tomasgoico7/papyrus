@@ -139,3 +139,47 @@ func TestAnalyzeHandlerPropagatesUpstreamClientError(t *testing.T) {
 		t.Fatalf("expected upstream 422 to be propagated, got %d", rec.Code)
 	}
 }
+
+func TestAnalyzeHandlerSurfacesUpstreamThrottlingAsItsOwnError(t *testing.T) {
+	// Render fronts the AI service with Cloudflare, so throttling arrives as a
+	// 429 carrying an HTML body rather than the shared error envelope.
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("<html>429 Too Many Requests</html>"))
+	}))
+	defer ai.Close()
+
+	body, contentType := buildMultipart(
+		t,
+		"cv.pdf",
+		"%PDF-1.4",
+		strings.Repeat("Some sufficiently long job description text. ", 2),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/analyze", body)
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+
+	newEngine(ai.URL).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "30" {
+		t.Errorf("Retry-After = %q, want the upstream hint passed along", got)
+	}
+
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	// Not ai_service_error: the client has to be able to tell "wait and retry"
+	// apart from "the request was wrong".
+	if envelope.Error.Code != "upstream_rate_limited" {
+		t.Errorf("code = %q, want upstream_rate_limited", envelope.Error.Code)
+	}
+}

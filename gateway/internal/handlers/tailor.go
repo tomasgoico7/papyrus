@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/papyrus/gateway/internal/httpx"
-	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
 )
 
@@ -86,7 +84,7 @@ func (h *TailorHandler) Questions(c *gin.Context) {
 		Locale:   strings.TrimSpace(c.PostForm("locale")),
 	})
 	if err != nil {
-		h.respondUpstream(c, err)
+		respondUpstream(c, err, "tailor")
 		return
 	}
 
@@ -116,27 +114,11 @@ func (h *TailorHandler) Generate(c *gin.Context) {
 
 	data, err := h.tailor.Generate(ctx, payload)
 	if err != nil {
-		h.respondUpstream(c, err)
+		respondUpstream(c, err, "tailor")
 		return
 	}
 
 	c.Data(http.StatusOK, "application/json; charset=utf-8", data)
-}
-
-func (h *TailorHandler) respondUpstream(c *gin.Context, err error) {
-	var upstream *services.UpstreamError
-	if errors.As(err, &upstream) && upstream.IsClientError() {
-		httpx.RespondError(c, upstream.StatusCode, upstream.Code, upstream.Message)
-		return
-	}
-
-	if errors.Is(err, context.DeadlineExceeded) {
-		httpx.RespondError(c, http.StatusGatewayTimeout, "upstream_timeout", "The request took too long. Please try again.")
-		return
-	}
-
-	observability.LoggerFrom(c.Request.Context()).Error("tailor upstream failure", slog.Any("error", err))
-	httpx.RespondError(c, http.StatusBadGateway, "upstream_unavailable", "The CV service is temporarily unavailable.")
 }
 
 func (h *TailorHandler) sizeLimitMessage() string {

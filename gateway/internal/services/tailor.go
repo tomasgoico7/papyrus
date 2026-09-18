@@ -75,7 +75,7 @@ func (c *TailorClient) post(ctx context.Context, path, contentType string, body 
 		return nil, fmt.Errorf("reading ai response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, decodeUpstreamErrorBytes(resp.StatusCode, data)
+		return nil, decodeUpstreamErrorBytes(resp.StatusCode, resp.Header.Get("Retry-After"), data)
 	}
 	return data, nil
 }

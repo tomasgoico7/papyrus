@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/papyrus/gateway/internal/httpx"
-	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
 	"github.com/papyrus/gateway/internal/transport"
 )
@@ -88,7 +86,7 @@ func (h *AnalyzeHandler) Handle(c *gin.Context) {
 		JobTitle: jobTitle,
 	})
 	if err != nil {
-		h.respondUpstream(c, err)
+		respondUpstream(c, err, "analyze")
 		return
 	}
 
@@ -96,22 +94,6 @@ func (h *AnalyzeHandler) Handle(c *gin.Context) {
 		Analysis:   *analysis,
 		CVFilename: header.Filename,
 	})
-}
-
-func (h *AnalyzeHandler) respondUpstream(c *gin.Context, err error) {
-	var upstream *services.UpstreamError
-	if errors.As(err, &upstream) && upstream.IsClientError() {
-		httpx.RespondError(c, upstream.StatusCode, upstream.Code, upstream.Message)
-		return
-	}
-
-	if errors.Is(err, context.DeadlineExceeded) {
-		httpx.RespondError(c, http.StatusGatewayTimeout, "upstream_timeout", "The analysis took too long. Please try again.")
-		return
-	}
-
-	observability.LoggerFrom(c.Request.Context()).Error("analyze upstream failure", slog.Any("error", err))
-	httpx.RespondError(c, http.StatusBadGateway, "upstream_unavailable", "The analysis service is temporarily unavailable.")
 }
 
 func (h *AnalyzeHandler) sizeLimitMessage() string {

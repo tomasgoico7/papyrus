@@ -21,6 +21,9 @@ type UpstreamError struct {
 	StatusCode int
 	Code       string
 	Message    string
+	// RetryAfter carries the upstream header verbatim when it sent one, so the
+	// gateway can hand the client the same hint instead of inventing a delay.
+	RetryAfter string
 }
 
 func (e *UpstreamError) Error() string {
@@ -29,6 +32,13 @@ func (e *UpstreamError) Error() string {
 
 func (e *UpstreamError) IsClientError() bool {
 	return e.StatusCode >= 400 && e.StatusCode < 500
+}
+
+// IsThrottled reports that the upstream refused for capacity reasons rather than
+// because the request was wrong. It is a 4xx, but retrying it unchanged is the
+// correct response — which is the opposite of every other 4xx.
+func (e *UpstreamError) IsThrottled() bool {
+	return e.StatusCode == http.StatusTooManyRequests
 }
 
 // AnalyzerClient talks to the Python AI service.
@@ -118,10 +128,10 @@ func encodeMultipart(req AnalyzeRequest) (io.Reader, string, error) {
 
 func decodeUpstreamError(resp *http.Response) error {
 	data, _ := io.ReadAll(resp.Body)
-	return decodeUpstreamErrorBytes(resp.StatusCode, data)
+	return decodeUpstreamErrorBytes(resp.StatusCode, resp.Header.Get("Retry-After"), data)
 }
 
-func decodeUpstreamErrorBytes(statusCode int, data []byte) error {
+func decodeUpstreamErrorBytes(statusCode int, retryAfter string, data []byte) error {
 	var envelope struct {
 		Error struct {
 			Code    string `json:"code"`
@@ -134,6 +144,7 @@ func decodeUpstreamErrorBytes(statusCode int, data []byte) error {
 			StatusCode: statusCode,
 			Code:       "ai_service_error",
 			Message:    "The AI service returned an unexpected response.",
+			RetryAfter: retryAfter,
 		}
 	}
 
@@ -141,5 +152,6 @@ func decodeUpstreamErrorBytes(statusCode int, data []byte) error {
 		StatusCode: statusCode,
 		Code:       envelope.Error.Code,
 		Message:    envelope.Error.Message,
+		RetryAfter: retryAfter,
 	}
 }
