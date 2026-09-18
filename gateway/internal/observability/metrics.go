@@ -25,6 +25,9 @@ type Metrics struct {
 	requests *prometheus.CounterVec
 	duration *prometheus.HistogramVec
 	inFlight prometheus.Gauge
+
+	cacheLookups *prometheus.CounterVec
+	cacheShared  prometheus.Counter
 }
 
 func NewMetrics() *Metrics {
@@ -51,12 +54,27 @@ func NewMetrics() *Metrics {
 				Help: "Requests currently being served.",
 			},
 		),
+		cacheLookups: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "analysis_cache_lookups_total",
+				Help: "Analysis cache lookups, by outcome: hit, miss, error or bypass.",
+			},
+			[]string{"result"},
+		),
+		cacheShared: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "analysis_cache_shared_total",
+				Help: "Requests answered by joining an identical analysis already in flight.",
+			},
+		),
 	}
 
 	m.registry.MustRegister(
 		m.requests,
 		m.duration,
 		m.inFlight,
+		m.cacheLookups,
+		m.cacheShared,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -107,4 +125,26 @@ func (m *Metrics) Handler() http.Handler {
 // to keep scrapes out of the service's own request metrics.
 func (m *Metrics) Path() string {
 	return metricsPath
+}
+
+// Cache outcomes. Bypass is not a miss: it means no lookup was attempted,
+// because the key could not be built.
+const (
+	CacheHit    = "hit"
+	CacheMiss   = "miss"
+	CacheError  = "error"
+	CacheBypass = "bypass"
+)
+
+// RecordCacheLookup counts one analysis cache lookup. The hit rate is
+// hit / (hit + miss), which is why error and bypass are kept apart from both:
+// folding them into misses would make a broken cache look merely cold.
+func (m *Metrics) RecordCacheLookup(result string) {
+	m.cacheLookups.WithLabelValues(result).Inc()
+}
+
+// RecordCacheShared counts a request that waited on an identical analysis
+// already running instead of starting its own.
+func (m *Metrics) RecordCacheShared() {
+	m.cacheShared.Inc()
 }

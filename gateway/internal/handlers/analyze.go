@@ -22,12 +22,12 @@ const (
 )
 
 type AnalyzeHandler struct {
-	analyzer       *services.AnalyzerClient
+	analyzer       services.Analyzer
 	maxUploadBytes int64
 	requestTimeout time.Duration
 }
 
-func NewAnalyzeHandler(analyzer *services.AnalyzerClient, maxUploadBytes int64, requestTimeout time.Duration) *AnalyzeHandler {
+func NewAnalyzeHandler(analyzer services.Analyzer, maxUploadBytes int64, requestTimeout time.Duration) *AnalyzeHandler {
 	return &AnalyzeHandler{
 		analyzer:       analyzer,
 		maxUploadBytes: maxUploadBytes,
