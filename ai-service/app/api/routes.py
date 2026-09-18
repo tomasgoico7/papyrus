@@ -5,8 +5,10 @@ from app.api.errors import ApiError
 from app.core.config import Settings, get_settings
 from app.schemas.analysis import AnalysisResult
 from app.schemas.tailor import GenerateRequest, Locale, QuestionsResponse, TailoredCV
+from app.schemas.version import VersionResponse
 from app.services.analyzer import CVAnalyzer
 from app.services.pdf_extractor import extract_text
+from app.services.prompt import PROMPT_VERSION
 from app.services.tailor import CVTailor
 
 router = APIRouter()
@@ -40,6 +42,21 @@ def verify_internal_token(
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get(
+    "/version",
+    response_model=VersionResponse,
+    response_model_by_alias=True,
+    dependencies=[Depends(verify_internal_token)],
+)
+async def version(settings: Settings = Depends(get_settings)) -> VersionResponse:
+    """What the analysis depends on, for the gateway to key its cache by.
+
+    A cached analysis is only valid for the prompt and model that produced it, so
+    both travel to the caller rather than being assumed.
+    """
+    return VersionResponse(prompt_version=PROMPT_VERSION, model=settings.gemini_model)
 
 
 @router.post(
