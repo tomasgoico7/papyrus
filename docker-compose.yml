@@ -34,10 +34,15 @@ services:
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-20}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
       REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-60}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      CACHE_TTL_HOURS: ${CACHE_TTL_HOURS:-168}
+      CACHE_LOCAL_ENTRIES: ${CACHE_LOCAL_ENTRIES:-256}
     ports:
       - "8080:8080"
     depends_on:
       ai-service:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       # GET (not --spider/HEAD): the gateway only registers GET on /health.
@@ -61,6 +66,22 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+
+  redis:
+    image: redis:7.4-alpine
+    # Bounded on purpose: a cache with no ceiling is a memory leak with good
+    # manners. LRU eviction keeps the entries that are actually being reused.
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis-data:/data
 
   # ── Observability ────────────────────────────────────────────────────────────
   # Behind a profile so the everyday `docker compose up` still starts three
@@ -129,5 +150,6 @@ services:
       - stub-ai
 
 volumes:
+  redis-data:
   prometheus-data:
   grafana-data:
