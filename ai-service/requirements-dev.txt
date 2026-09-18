@@ -1,5 +1,7 @@
 -r requirements.txt
 
+# TestClient needs it; it is not a runtime dependency of the service.
+httpx==0.28.1
 mypy==1.18.2
 pytest==8.3.3
 pytest-asyncio==0.24.0
