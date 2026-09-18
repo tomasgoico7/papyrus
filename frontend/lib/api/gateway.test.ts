@@ -27,4 +27,26 @@ describe("localizeGatewayError", () => {
       t.result.errors.payloadTooLarge.replace("{mb}", "5"),
     );
   });
+
+  // These three reached production as the generic message, which told the user
+  // nothing about a condition that retrying usually fixes.
+  it.each([
+    ["upstream_rate_limited", 429, "upstreamRateLimited"],
+    ["rate_limited", 429, "rateLimited"],
+    ["ai_service_error", 429, "aiServiceError"],
+  ] as const)("explains %s instead of falling back", (code, status, key) => {
+    const error = new GatewayError("raw", code, status);
+    const message = localizeGatewayError(error, t);
+
+    expect(message).toBe(t.result.errors[key]);
+    expect(message).not.toBe(t.result.errorGeneric);
+  });
+
+  it("localizes the busy message in both languages", () => {
+    const error = new GatewayError("raw", "upstream_rate_limited", 429);
+    const es = getDictionary("es");
+
+    expect(localizeGatewayError(error, es)).toBe(es.result.errors.upstreamRateLimited);
+    expect(localizeGatewayError(error, es)).not.toBe(localizeGatewayError(error, t));
+  });
 });

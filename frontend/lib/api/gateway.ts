@@ -74,6 +74,12 @@ const ERROR_CODE_KEYS: Record<string, keyof Dictionary["result"]["errors"]> = {
   analysis_failed: "analysisFailed",
   upstream_timeout: "upstreamTimeout",
   upstream_unavailable: "upstreamUnavailable",
+  upstream_rate_limited: "upstreamRateLimited",
+  rate_limited: "rateLimited",
+  // The gateway sends this when the AI service answers with something that is
+  // not our error envelope — a proxy page, usually. Without it here the user
+  // got the generic message for a condition that retrying often fixes.
+  ai_service_error: "aiServiceError",
   network_error: "networkError",
 };
 

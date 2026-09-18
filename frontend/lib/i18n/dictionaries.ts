@@ -77,6 +77,9 @@ export interface Dictionary {
       analysisFailed: string;
       upstreamTimeout: string;
       upstreamUnavailable: string;
+      upstreamRateLimited: string;
+      rateLimited: string;
+      aiServiceError: string;
       networkError: string;
     };
   };
@@ -241,6 +244,11 @@ const en: Dictionary = {
       analysisFailed: "The analysis could not be completed.",
       upstreamTimeout: "The analysis took too long. Please try again.",
       upstreamUnavailable: "The analysis service is temporarily unavailable.",
+      upstreamRateLimited:
+        "The analysis service is busy right now. Wait a moment and try again.",
+      rateLimited: "Too many analyses in a short time. Wait a moment and try again.",
+      aiServiceError:
+        "The analysis service answered unexpectedly. Please try again in a moment.",
       networkError: "Couldn't reach the analysis service. Check your connection and try again.",
     },
   },
@@ -410,6 +418,11 @@ const es: Dictionary = {
       analysisFailed: "No se pudo completar el análisis.",
       upstreamTimeout: "El análisis tardó demasiado. Probá de nuevo.",
       upstreamUnavailable: "El servicio de análisis no está disponible en este momento.",
+      upstreamRateLimited:
+        "El servicio de análisis está saturado. Esperá un momento y probá de nuevo.",
+      rateLimited: "Demasiados análisis en poco tiempo. Esperá un momento y probá de nuevo.",
+      aiServiceError:
+        "El servicio de análisis respondió de forma inesperada. Probá de nuevo en un momento.",
       networkError: "No pudimos conectar con el servicio de análisis. Revisá tu conexión y probá de nuevo.",
     },
   },
