@@ -23,6 +23,7 @@ duplicating the depth here would double the maintenance for no reader.
 | [0004](0004-produce-both-languages-in-one-model-call.md) | Produce both languages in one model call | Accepted |
 | [0005](0005-keep-deterministic-work-out-of-the-model.md) | Keep deterministic work out of the model | Accepted |
 | [0006](0006-correlate-and-measure-every-request.md) | Correlate and measure every request | Accepted |
+| [0007](0007-cache-analyses-in-two-tiers.md) | Cache analyses in two tiers | Accepted |
 
 Records 0001 to 0005 were written after the fact, from decisions already visible
 in the code. Everything from 0006 on is recorded as it is taken.

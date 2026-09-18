@@ -134,9 +134,12 @@ papyrus/
 │   ├── cmd/server/              # entrypoint + graceful shutdown
 │   └── internal/
 │       ├── auth/                # fetch + caché de JWKS, verificación ES256/RS256
+│       ├── cache/               # store de bytes: LRU en proceso, Redis, y el tier
 │       ├── config/              # carga + validación del entorno (fail fast)
-│       ├── handlers/, router/   # /analyze, /health, armado del engine
-│       ├── middleware/          # CORS, auth, rate limiting
+│       ├── handlers/, router/   # /analyze, /health, /metrics, armado del engine
+│       ├── middleware/          # CORS, auth, rate limiting, request id
+│       ├── observability/       # logger estructurado y métricas RED
+│       ├── requestid/           # id de correlación y su transporte por contexto
 │       └── services/, transport/, httpx/
 ├── ai-service/                  # Python + FastAPI
 │   ├── app/{api,core,schemas,services}/
@@ -348,6 +351,28 @@ docker compose --profile observability up
 Grafana queda en http://localhost:3001 (sin login, es local) con el dashboard RED
 ya aprovisionado; Prometheus en http://localhost:9090.
 
+### Caché
+
+Un análisis repetido — el mismo CV contra la misma oferta — no vuelve a pagar el
+modelo. El gateway lo cachea en dos niveles: un LRU en proceso que absorbe las
+repeticiones, y Redis que aporta lo que un proceso solo no puede tener, entradas
+compartidas entre réplicas y entradas que sobreviven a un reinicio. `singleflight`
+adelante colapsa los pedidos concurrentes de la misma clave en **una sola** llamada
+al modelo.
+
+La clave incluye todo lo que puede cambiar la respuesta, incluido un *fingerprint*
+del prompt que el servicio de IA deriva de sus propios prompts y del esquema. Editar
+un prompt cambia el fingerprint y las entradas viejas dejan de direccionarse solas:
+no hay ningún número que haya que acordarse de subir.
+
+Redis es opcional — sin él el gateway igual cachea en proceso — y cualquier falla
+del caché degrada a llamar al upstream. El detalle completo está en el
+[ADR 0007](docs/adr/0007-cache-analyses-in-two-tiers.md).
+
+```bash
+docker compose up          # Redis ya viene incluido
+```
+
 ### Baseline
 
 **Overhead del gateway**, medido con un stub como upstream, así el número es el
@@ -357,15 +382,22 @@ trabajo del gateway y no la latencia del modelo:
 cd gateway && go test ./internal/handlers/ -run '^$' -bench BenchmarkAnalyzeHandler -benchtime 3s -count 3
 ```
 
-| Métrica | Valor |
-|---|---|
-| Latencia por análisis | **~0,58 ms** |
-| Memoria por análisis | **~683 KB** |
-| Allocs por análisis | **~305** |
+```bash
+cd gateway && go test ./internal/services/ -run '^$' -bench BenchmarkAnalysisCache -benchtime 2s -count 3
+```
 
-<sub>Medido en un Ryzen 7 5825U. Incluye parseo del multipart, validación, el ida y
-vuelta al upstream y la serialización; no incluye la verificación del JWT, que
-necesita un JWKS vivo.</sub>
+| Camino | Latencia | Memoria | Allocs |
+|---|---|---|---|
+| Análisis (overhead del gateway) | **~0,58 ms** | ~683 KB | ~305 |
+| Cache hit (análisis repetido) | **~0,12 ms** | ~209 KB | ~53 |
+
+<sub>Medido en un Ryzen 7 5825U. El overhead del gateway cubre parseo del multipart,
+validación, el ida y vuelta al upstream y la serialización; no incluye la
+verificación del JWT, que necesita un JWKS vivo. El cache hit cubre leer el archivo,
+hashearlo y decodificar el resultado guardado.</sub>
+
+Lo que reemplaza el cache hit no son esos 0,58 ms: es la llamada al modelo, que en
+producción son decenas de segundos y un pedazo de la cuota diaria.
 
 Los 683 KB por request son el hallazgo interesante: el gateway **bufferea el CV
 entero en memoria** para reenviarlo. Con el límite de 5 MB, eso es varias decenas de
