@@ -4,10 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// SetRedisLogger routes the client's internal messages — pool failures, mostly —
+// through the service logger. Left alone it writes straight to stderr, which
+// would make a connection error the one unstructured line in the stream.
+func SetRedisLogger(logger *slog.Logger) {
+	redis.SetLogger(redisLogger{logger: logger})
+}
+
+type redisLogger struct{ logger *slog.Logger }
+
+func (l redisLogger) Printf(ctx context.Context, format string, v ...any) {
+	l.logger.WarnContext(ctx, fmt.Sprintf(format, v...), slog.String("component", "redis"))
+}
 
 // Redis is a shared cache tier: entries written by one replica are visible to
 // the others, which an in-process cache cannot do.

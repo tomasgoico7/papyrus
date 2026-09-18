@@ -31,7 +31,7 @@ func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	)
 
 	upstream := upstreamClient(cfg.RequestTimeout)
-	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
+	analyzer := buildAnalyzer(cfg, upstream, metrics, logger)
 	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
 	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)

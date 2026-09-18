@@ -21,6 +21,12 @@ type Config struct {
 	RateLimitRPM   int
 	MaxUploadBytes int64
 	RequestTimeout time.Duration
+
+	// RedisURL is optional. Without it the gateway still caches, in process
+	// only: useful on a single instance, and free.
+	RedisURL          string
+	CacheTTL          time.Duration
+	CacheLocalEntries int
 }
 
 func (c Config) IsProduction() bool {
@@ -50,6 +56,18 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	// A week: an analysis stays valid until the prompt or the model changes, and
+	// the cache key already carries both. Zero turns caching off.
+	cacheTTLHours, err := intWithDefault("CACHE_TTL_HOURS", 168)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheLocalEntries, err := intWithDefault("CACHE_LOCAL_ENTRIES", 256)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:           stringWithDefault("PORT", "8080"),
 		Environment:    stringWithDefault("ENVIRONMENT", "development"),
@@ -61,6 +79,10 @@ func Load() (*Config, error) {
 		RateLimitRPM:   rateLimit,
 		MaxUploadBytes: int64(maxUploadMB) * 1024 * 1024,
 		RequestTimeout: time.Duration(timeoutSeconds) * time.Second,
+
+		RedisURL:          strings.TrimSpace(os.Getenv("REDIS_URL")),
+		CacheTTL:          time.Duration(cacheTTLHours) * time.Hour,
+		CacheLocalEntries: cacheLocalEntries,
 	}, nil
 }
 
@@ -100,4 +122,9 @@ func splitOrigins(raw string) []string {
 		}
 	}
 	return origins
+}
+
+// CacheEnabled reports whether analyses should be cached at all.
+func (c Config) CacheEnabled() bool {
+	return c.CacheTTL > 0
 }
