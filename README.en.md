@@ -20,6 +20,7 @@ The interface is bilingual (English / Spanish), has light and dark themes, and t
 - [Running it locally](#running-it-locally)
 - [How a few things actually work](#how-a-few-things-actually-work)
 - [API reference](#api-reference)
+- [Observability and measurement](#observability-and-measurement)
 - [Testing](#testing)
 - [Deploying](#deploying)
 - [Gotchas I hit](#gotchas-i-hit-so-you-dont)
@@ -141,6 +142,8 @@ papyrus/
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, model chain is faked
 ├── supabase/migrations/         # 0001 schema+RLS, 0002 storage, 0003 bilingual, 0004 sharing
+├── ops/                         # Prometheus config and Grafana dashboards
+├── load/                        # k6 scenario + AI-service stub
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -292,6 +295,90 @@ The gateway passes a 4xx from the AI service straight through (e.g. `422 unreada
 ### `GET /health` — gateway & AI service
 
 Returns `{ "status": "ok" }`. Used by the Docker and Render health checks.
+
+---
+
+## Observability and measurement
+
+### One id across all three services
+
+The gateway stamps every request with an `X-Request-ID`. An inbound one is reused
+only if it survives sanitising — short and alphanumeric, since a header carrying a
+newline could forge log lines — and otherwise a fresh 128-bit id is generated. That
+id travels to the AI service in the same header, comes back to the browser on the
+response, and appears on **every log line in both services**. A failure is followed
+end to end with a single `grep`.
+
+Logs are JSON in production and human-readable text in development. On the Python
+side `structlog` and the standard library share one renderer, so even an unexpected
+traceback from the model provider arrives with its `request_id` attached.
+
+### Metrics
+
+Both services expose `/metrics` in the Prometheus text format with the three RED
+signals, plus the runtime collectors:
+
+| Metric | What it measures |
+|---|---|
+| `http_requests_total{method,route,status}` | Rate and errors |
+| `http_request_duration_seconds{method,route}` | Duration |
+| `http_requests_in_flight` | Current concurrency |
+
+Two details that matter:
+
+- **The `route` label is always the registered template**, never the raw path.
+  Labelling by path lets anything walking URLs mint a time series per request and
+  eventually take the scrape down. Unregistered paths collapse into `unmatched`.
+- **The histogram buckets reach 60s.** Library defaults stop at 10, and since a real
+  analysis takes tens of seconds, every observation would land in the overflow
+  bucket and the p95 would mean nothing.
+
+`/metrics` carries no user data — that is exactly what the cardinality discipline
+buys. Even so, a serious deployment would put it on a separate internal port rather
+than the public one.
+
+### Dashboards
+
+```bash
+docker compose --profile observability up
+```
+
+Grafana lands on http://localhost:3001 (no login, it is local) with the RED dashboard
+already provisioned; Prometheus on http://localhost:9090.
+
+### Baseline
+
+**Gateway overhead**, measured against a stub upstream so the number is the
+gateway's own work rather than model latency:
+
+```bash
+cd gateway && go test ./internal/handlers/ -run '^$' -bench BenchmarkAnalyzeHandler -benchtime 3s -count 3
+```
+
+| Metric | Value |
+|---|---|
+| Latency per analysis | **~0.58 ms** |
+| Memory per analysis | **~683 KB** |
+| Allocations per analysis | **~305** |
+
+<sub>Measured on a Ryzen 7 5825U. Covers multipart parsing, validation, the upstream
+round trip and serialisation; excludes JWT verification, which needs a live JWKS
+endpoint.</sub>
+
+The 683 KB per request is the interesting find: the gateway **buffers the whole CV in
+memory** to forward it. At the 5 MB limit that is tens of megabytes under
+concurrency. Noted here because only now is it visible.
+
+**Sustained load** with k6, against a gateway pointed at the stub:
+
+```bash
+docker compose --profile loadtest up          # gateway on :8081 + stub
+k6 run -e TOKEN="<access token>" load/k6/analyze.js
+```
+
+The token is a real Supabase one — the gateway verifies the signature against the
+project JWKS and there is no way to mint one offline. Take it from a browser session
+with `(await supabase.auth.getSession()).data.session.access_token`.
 
 ---
 

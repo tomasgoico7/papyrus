@@ -95,6 +95,39 @@ services:
     depends_on:
       - prometheus
 
+  # ── Load testing ─────────────────────────────────────────────────────────────
+  # A second gateway wired to a stub upstream, so a k6 run measures the gateway
+  # instead of Gemini — and costs nothing. Bring it up with
+  # `docker compose --profile loadtest up`.
+  stub-ai:
+    image: python:3.11-slim
+    profiles: [loadtest]
+    command: ["python", "/srv/ai_stub.py"]
+    environment:
+      STUB_LATENCY_MS: ${STUB_LATENCY_MS:-0}
+    volumes:
+      - ./load/stub/ai_stub.py:/srv/ai_stub.py:ro
+
+  gateway-loadtest:
+    build:
+      context: ./gateway
+    profiles: [loadtest]
+    environment:
+      PORT: 8080
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      AI_SERVICE_URL: http://stub-ai:8000
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      # Raised well past the real budget: the limiter is not what is under test.
+      RATE_LIMIT_RPM: ${LOADTEST_RATE_LIMIT_RPM:-100000}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-60}
+    ports:
+      - "8081:8080"
+    depends_on:
+      - stub-ai
+
 volumes:
   prometheus-data:
   grafana-data:

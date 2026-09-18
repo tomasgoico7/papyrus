@@ -20,6 +20,7 @@ La interfaz es bilingüe (español / inglés), tiene tema claro y oscuro, y trat
 - [Correrlo localmente](#correrlo-localmente)
 - [Cómo funcionan algunas cosas por dentro](#cómo-funcionan-algunas-cosas-por-dentro)
 - [Referencia de la API](#referencia-de-la-api)
+- [Observabilidad y medición](#observabilidad-y-medición)
 - [Tests](#tests)
 - [Deploy](#deploy)
 - [Bugs que aparecieron](#bugs-que-aparecieron-para-que-a-vos-no)
@@ -141,6 +142,8 @@ papyrus/
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, la cadena del modelo está fakeada
 ├── supabase/migrations/         # 0001 esquema+RLS, 0002 storage, 0003 bilingüe, 0004 compartir
+├── ops/                         # config de Prometheus y dashboards de Grafana
+├── load/                        # escenario de k6 + stub del servicio de IA
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -292,6 +295,91 @@ El gateway pasa un 4xx del servicio de IA tal cual (por ejemplo `422 unreadable_
 ### `GET /health` — gateway y servicio IA
 
 Devuelve `{ "status": "ok" }`. Lo usan los health checks de Docker y Render.
+
+---
+
+## Observabilidad y medición
+
+### Un id que cruza los tres servicios
+
+El gateway le pone un `X-Request-ID` a cada request — reusa el que venga del cliente
+sólo si sobrevive un saneo (corto y alfanumérico; un header con un salto de línea
+podría fabricar líneas de log falsas), y si no genera uno de 128 bits. Ese id viaja
+al servicio de IA en el mismo header, vuelve al browser en la respuesta, y aparece
+en **cada línea de log de los dos servicios**. Un fallo se sigue de punta a punta
+con un solo `grep`.
+
+Los logs son JSON en producción y texto legible en desarrollo. Del lado de Python,
+`structlog` y la librería estándar salen por el mismo renderer, así que hasta un
+traceback inesperado del proveedor del modelo llega con su `request_id` puesto.
+
+### Métricas
+
+Los dos servicios exponen `/metrics` en formato Prometheus con las tres señales RED,
+más los colectores de runtime:
+
+| Métrica | Qué mide |
+|---|---|
+| `http_requests_total{method,route,status}` | Rate y errores |
+| `http_request_duration_seconds{method,route}` | Duración |
+| `http_requests_in_flight` | Concurrencia en curso |
+
+Dos detalles que importan:
+
+- **La etiqueta `route` es siempre la plantilla registrada**, nunca el path crudo.
+  Etiquetar por path deja que cualquier escáner de URLs cree una serie temporal por
+  request y termine tirando abajo el scrape. Lo que no está registrado cae en
+  `unmatched`.
+- **Los buckets del histograma llegan a 60s.** Los que traen por defecto las
+  librerías cortan en 10, y como un análisis real tarda decenas de segundos, todas
+  las observaciones caerían en el bucket de overflow y el p95 no significaría nada.
+
+`/metrics` no lleva ningún dato de usuario — esa es justamente la razón de la
+disciplina de cardinalidad. Aun así, en un deploy serio iría en un puerto interno
+separado y no en el público.
+
+### Dashboards
+
+```bash
+docker compose --profile observability up
+```
+
+Grafana queda en http://localhost:3001 (sin login, es local) con el dashboard RED
+ya aprovisionado; Prometheus en http://localhost:9090.
+
+### Baseline
+
+**Overhead del gateway**, medido con un stub como upstream, así el número es el
+trabajo del gateway y no la latencia del modelo:
+
+```bash
+cd gateway && go test ./internal/handlers/ -run '^$' -bench BenchmarkAnalyzeHandler -benchtime 3s -count 3
+```
+
+| Métrica | Valor |
+|---|---|
+| Latencia por análisis | **~0,58 ms** |
+| Memoria por análisis | **~683 KB** |
+| Allocs por análisis | **~305** |
+
+<sub>Medido en un Ryzen 7 5825U. Incluye parseo del multipart, validación, el ida y
+vuelta al upstream y la serialización; no incluye la verificación del JWT, que
+necesita un JWKS vivo.</sub>
+
+Los 683 KB por request son el hallazgo interesante: el gateway **bufferea el CV
+entero en memoria** para reenviarlo. Con el límite de 5 MB, eso es varias decenas de
+megabytes bajo concurrencia. Lo dejo anotado acá porque recién ahora es visible.
+
+**Carga sostenida** con k6, contra un gateway apuntado al stub:
+
+```bash
+docker compose --profile loadtest up          # gateway en :8081 + stub
+k6 run -e TOKEN="<access token>" load/k6/analyze.js
+```
+
+El token es uno real de Supabase — el gateway verifica la firma contra el JWKS del
+proyecto y no hay forma de fabricar uno offline. Se saca de una sesión del browser
+con `(await supabase.auth.getSession()).data.session.access_token`.
 
 ---
 
