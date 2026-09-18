@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/papyrus/gateway/internal/requestid"
 	"github.com/papyrus/gateway/internal/services"
 	"github.com/papyrus/gateway/internal/transport"
 )
@@ -231,6 +232,37 @@ func TestAnalyzeHonoursContextCancellation(t *testing.T) {
 	_, err := client.Analyze(ctx, analyzeRequest())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want it to wrap context.Canceled", err)
+	}
+}
+
+func TestAnalyzeForwardsTheCorrelationID(t *testing.T) {
+	var withID, withoutID string
+
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(requestid.Header); got != "" {
+			withID = got
+		} else {
+			withoutID = "absent"
+		}
+		_ = json.NewEncoder(w).Encode(sampleAnalysis())
+	}))
+	defer ai.Close()
+
+	client := services.NewAnalyzerClient(ai.URL, "", ai.Client())
+
+	ctx := requestid.NewContext(context.Background(), "abc123")
+	if _, err := client.Analyze(ctx, analyzeRequest()); err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+	if withID != "abc123" {
+		t.Errorf("forwarded id = %q, want abc123", withID)
+	}
+
+	if _, err := client.Analyze(context.Background(), analyzeRequest()); err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+	if withoutID != "absent" {
+		t.Error("a context without an id should not send an empty header")
 	}
 }
 

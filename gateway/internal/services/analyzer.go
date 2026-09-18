@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/papyrus/gateway/internal/requestid"
 	"github.com/papyrus/gateway/internal/transport"
 )
 
@@ -66,6 +67,9 @@ func (c *AnalyzerClient) Analyze(ctx context.Context, req AnalyzeRequest) (*tran
 	httpReq.Header.Set("Content-Type", contentType)
 	if c.token != "" {
 		httpReq.Header.Set("X-Internal-Token", c.token)
+	}
+	if id := requestid.FromContext(ctx); id != "" {
+		httpReq.Header.Set(requestid.Header, id)
 	}
 
 	resp, err := c.http.Do(httpReq)

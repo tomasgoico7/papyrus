@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+
+	"github.com/papyrus/gateway/internal/requestid"
 )
 
 // TailorClient talks to the AI service's CV-tailoring endpoints. Unlike the
@@ -57,6 +59,9 @@ func (c *TailorClient) post(ctx context.Context, path, contentType string, body 
 	httpReq.Header.Set("Content-Type", contentType)
 	if c.token != "" {
 		httpReq.Header.Set("X-Internal-Token", c.token)
+	}
+	if id := requestid.FromContext(ctx); id != "" {
+		httpReq.Header.Set(requestid.Header, id)
 	}
 
 	resp, err := c.http.Do(httpReq)
