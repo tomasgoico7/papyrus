@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/papyrus/gateway/internal/httpx"
+	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
 	"github.com/papyrus/gateway/internal/transport"
 )
@@ -26,15 +27,13 @@ type AnalyzeHandler struct {
 	analyzer       *services.AnalyzerClient
 	maxUploadBytes int64
 	requestTimeout time.Duration
-	logger         *slog.Logger
 }
 
-func NewAnalyzeHandler(analyzer *services.AnalyzerClient, maxUploadBytes int64, requestTimeout time.Duration, logger *slog.Logger) *AnalyzeHandler {
+func NewAnalyzeHandler(analyzer *services.AnalyzerClient, maxUploadBytes int64, requestTimeout time.Duration) *AnalyzeHandler {
 	return &AnalyzeHandler{
 		analyzer:       analyzer,
 		maxUploadBytes: maxUploadBytes,
 		requestTimeout: requestTimeout,
-		logger:         logger,
 	}
 }
 
@@ -111,7 +110,7 @@ func (h *AnalyzeHandler) respondUpstream(c *gin.Context, err error) {
 		return
 	}
 
-	h.logger.Error("analyze upstream failure", slog.Any("error", err))
+	observability.LoggerFrom(c.Request.Context()).Error("analyze upstream failure", slog.Any("error", err))
 	httpx.RespondError(c, http.StatusBadGateway, "upstream_unavailable", "The analysis service is temporarily unavailable.")
 }
 

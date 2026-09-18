@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/papyrus/gateway/internal/httpx"
+	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
 )
 
@@ -24,15 +25,13 @@ type TailorHandler struct {
 	tailor         *services.TailorClient
 	maxUploadBytes int64
 	requestTimeout time.Duration
-	logger         *slog.Logger
 }
 
-func NewTailorHandler(tailor *services.TailorClient, maxUploadBytes int64, requestTimeout time.Duration, logger *slog.Logger) *TailorHandler {
+func NewTailorHandler(tailor *services.TailorClient, maxUploadBytes int64, requestTimeout time.Duration) *TailorHandler {
 	return &TailorHandler{
 		tailor:         tailor,
 		maxUploadBytes: maxUploadBytes,
 		requestTimeout: requestTimeout,
-		logger:         logger,
 	}
 }
 
@@ -136,7 +135,7 @@ func (h *TailorHandler) respondUpstream(c *gin.Context, err error) {
 		return
 	}
 
-	h.logger.Error("tailor upstream failure", slog.Any("error", err))
+	observability.LoggerFrom(c.Request.Context()).Error("tailor upstream failure", slog.Any("error", err))
 	httpx.RespondError(c, http.StatusBadGateway, "upstream_unavailable", "The CV service is temporarily unavailable.")
 }
 

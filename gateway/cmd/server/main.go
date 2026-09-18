@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/papyrus/gateway/internal/config"
+	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/router"
 )
 
@@ -33,7 +34,7 @@ func run() error {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
-	logger := newLogger(cfg)
+	logger := observability.NewLogger(cfg.IsProduction(), cfg.LogLevel)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router.New(cfg, logger),
@@ -72,13 +73,4 @@ func run() error {
 
 	logger.Info("gateway stopped")
 	return nil
-}
-
-// newLogger writes text locally, where a person reads it, and JSON in
-// production, where a log aggregator does.
-func newLogger(cfg *config.Config) *slog.Logger {
-	if cfg.IsProduction() {
-		return slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	}
-	return slog.New(slog.NewTextHandler(os.Stdout, nil))
 }

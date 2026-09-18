@@ -21,13 +21,17 @@ func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 
 	engine := gin.New()
 	engine.MaxMultipartMemory = cfg.MaxUploadBytes
-	engine.Use(gin.Recovery(), middleware.CORS(cfg.AllowedOrigins))
+	engine.Use(
+		gin.Recovery(),
+		middleware.RequestID(logger),
+		middleware.CORS(cfg.AllowedOrigins),
+	)
 
 	upstream := upstreamClient(cfg.RequestTimeout)
 	analyzer := services.NewAnalyzerClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
-	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout, logger)
+	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
-	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout, logger)
+	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	keySet := auth.NewKeySet(cfg.JWKSURL)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 

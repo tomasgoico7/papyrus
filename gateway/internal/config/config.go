@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Port           string
 	Environment    string
+	LogLevel       string
 	AIServiceURL   string
 	AIServiceToken string
 	JWKSURL        string
@@ -52,6 +53,7 @@ func Load() (*Config, error) {
 	return &Config{
 		Port:           stringWithDefault("PORT", "8080"),
 		Environment:    stringWithDefault("ENVIRONMENT", "development"),
+		LogLevel:       stringWithDefault("LOG_LEVEL", "info"),
 		AIServiceURL:   stringWithDefault("AI_SERVICE_URL", "http://localhost:8000"),
 		AIServiceToken: strings.TrimSpace(os.Getenv("INTERNAL_API_KEY")),
 		JWKSURL:        strings.TrimRight(supabaseURL, "/") + "/auth/v1/.well-known/jwks.json",
