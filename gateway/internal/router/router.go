@@ -11,6 +11,7 @@ import (
 	"github.com/papyrus/gateway/internal/config"
 	"github.com/papyrus/gateway/internal/handlers"
 	"github.com/papyrus/gateway/internal/middleware"
+	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
 )
 
@@ -21,9 +22,11 @@ func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 
 	engine := gin.New()
 	engine.MaxMultipartMemory = cfg.MaxUploadBytes
+	metrics := observability.NewMetrics()
 	engine.Use(
 		gin.Recovery(),
 		middleware.RequestID(logger),
+		metrics.Middleware(),
 		middleware.CORS(cfg.AllowedOrigins),
 	)
 
@@ -36,6 +39,7 @@ func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 
 	engine.GET("/health", handlers.Health)
+	engine.GET(metrics.Path(), gin.WrapH(metrics.Handler()))
 
 	authed := engine.Group("/")
 	authed.Use(middleware.Auth(keySet.Keyfunc), rateLimiter.Middleware())
