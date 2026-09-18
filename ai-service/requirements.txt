@@ -6,3 +6,5 @@ pydantic-settings==2.6.1
 pypdf==5.1.0
 langchain-core==0.3.86
 langchain-google-genai==2.0.11
+structlog==25.5.0
+prometheus-client==0.24.1
