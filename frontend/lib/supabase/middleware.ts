@@ -8,6 +8,11 @@ type CookiesToSet = { name: string; value: string; options: CookieOptions }[];
 
 const PROTECTED_PREFIX = "/dashboard";
 
+// The auth check runs on every request, so it needs a ceiling. Without one, an
+// unreachable Supabase project left the call hanging until the platform killed
+// the middleware, and every page — the public landing included — answered 504.
+const AUTH_TIMEOUT_MS = 2500;
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -29,14 +34,29 @@ export async function updateSession(request: NextRequest) {
           );
         },
       },
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, signal: AbortSignal.timeout(AUTH_TIMEOUT_MS) }),
+      },
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const isProtected = request.nextUrl.pathname.startsWith(PROTECTED_PREFIX);
 
-  if (!user && request.nextUrl.pathname.startsWith(PROTECTED_PREFIX)) {
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    // Auth is unreachable rather than the visitor being signed out. Public pages
+    // have no business failing over it; the dashboard still cannot be served,
+    // and falls through to the redirect below.
+    if (!isProtected) {
+      return response;
+    }
+  }
+
+  if (!user && isProtected) {
     const redirectUrl = new URL("/", requestOrigin(request));
     redirectUrl.searchParams.set("auth", "required");
     return NextResponse.redirect(redirectUrl);
