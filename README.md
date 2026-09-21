@@ -396,8 +396,21 @@ validación, el ida y vuelta al upstream y la serialización; no incluye la
 verificación del JWT, que necesita un JWKS vivo. El cache hit cubre leer el archivo,
 hashearlo y decodificar el resultado guardado.</sub>
 
-Lo que reemplaza el cache hit no son esos 0,58 ms: es la llamada al modelo, que en
-producción son decenas de segundos y un pedazo de la cuota diaria.
+Lo que reemplaza el cache hit no son esos 0,58 ms: es la llamada al modelo. Medido
+de punta a punta contra el stack completo, con una llamada real a Gemini y el mismo
+análisis corrido dos veces:
+
+| Camino | Latencia observada |
+|---|---|
+| Primer análisis (miss → Gemini) | **~31,5 s** |
+| Repetición (hit) | **< 10 ms** |
+
+<sub>Tomado del histograma del gateway: de las dos observaciones, una cayó en el
+bucket `le=0.01` y la otra entre 30 y 45 s, con una suma de 31,54 s.</sub>
+
+Esto es también lo que justifica los buckets hasta 60 s: con los que traen por
+defecto las librerías, que cortan en 10, esos 31,5 s habrían caído en el bucket de
+overflow y el p95 no habría significado nada.
 
 Los 683 KB por request son el hallazgo interesante: el gateway **bufferea el CV
 entero en memoria** para reenviarlo. Con el límite de 5 MB, eso es varias decenas de

@@ -394,8 +394,21 @@ validation, the upstream round trip and serialisation; it excludes JWT verificat
 which needs a live JWKS endpoint. The cache hit covers reading the file, hashing it
 and decoding the stored result.</sub>
 
-What a cache hit replaces is not that 0.58 ms: it is the call to the model, which in
-production is tens of seconds and a slice of the daily quota.
+What a cache hit replaces is not that 0.58 ms: it is the call to the model. Measured
+end to end against the full stack, with a real Gemini call and the same analysis run
+twice:
+
+| Path | Observed latency |
+|---|---|
+| First analysis (miss → Gemini) | **~31.5 s** |
+| Repeat (hit) | **< 10 ms** |
+
+<sub>Read off the gateway histogram: of the two observations one landed in the
+`le=0.01` bucket and the other between 30 and 45 s, summing to 31.54 s.</sub>
+
+This is also what justifies the buckets reaching 60 s: with the library defaults,
+which stop at 10, those 31.5 s would have landed in the overflow bucket and the p95
+would have meant nothing.
 
 The 683 KB per request is the interesting find: the gateway **buffers the whole CV in
 memory** to forward it. At the 5 MB limit that is tens of megabytes under
