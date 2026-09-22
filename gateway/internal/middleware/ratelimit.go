@@ -2,83 +2,34 @@ package middleware
 
 import (
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/time/rate"
 
 	"github.com/papyrus/gateway/internal/httpx"
+	"github.com/papyrus/gateway/internal/ratelimit"
 )
 
-type RateLimiter struct {
-	mu       sync.Mutex
-	visitors map[string]*visitor
-	limit    rate.Limit
-	burst    int
-	ttl      time.Duration
-}
-
-type visitor struct {
-	limiter  *rate.Limiter
-	lastSeen time.Time
-}
-
-func NewRateLimiter(requestsPerMinute int) *RateLimiter {
-	if requestsPerMinute < 1 {
-		requestsPerMinute = 1
-	}
-
-	rl := &RateLimiter{
-		visitors: make(map[string]*visitor),
-		limit:    rate.Limit(float64(requestsPerMinute) / 60.0),
-		burst:    requestsPerMinute,
-		ttl:      10 * time.Minute,
-	}
-	go rl.evictLoop()
-	return rl
-}
-
-func (rl *RateLimiter) Middleware() gin.HandlerFunc {
+// RateLimit spends one unit of the caller's budget per request.
+//
+// The budget is per user where there is one, and per address otherwise: an
+// unauthenticated caller has no identity to charge, and charging them all
+// together would let one of them exhaust everybody's.
+func RateLimit(limiter ratelimit.Limiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		key := c.GetString(ContextUserID)
+		key := httpx.UserID(c)
 		if key == "" {
 			key = c.ClientIP()
 		}
 
-		if !rl.limiterFor(key).Allow() {
-			httpx.RespondError(c, http.StatusTooManyRequests, "rate_limited", "Too many requests. Please wait a moment and try again.")
+		// The limiter never returns an error it expects the caller to act on: a
+		// decision it could not make has already been answered by a fallback.
+		allowed, _ := limiter.Allow(c.Request.Context(), key)
+		if !allowed {
+			httpx.RespondError(c, http.StatusTooManyRequests, "rate_limited",
+				"Too many requests. Please wait a moment and try again.")
 			return
 		}
 
 		c.Next()
-	}
-}
-
-func (rl *RateLimiter) limiterFor(key string) *rate.Limiter {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	v, ok := rl.visitors[key]
-	if !ok {
-		v = &visitor{limiter: rate.NewLimiter(rl.limit, rl.burst)}
-		rl.visitors[key] = v
-	}
-	v.lastSeen = time.Now()
-	return v.limiter
-}
-
-func (rl *RateLimiter) evictLoop() {
-	ticker := time.NewTicker(rl.ttl)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		rl.mu.Lock()
-		for key, v := range rl.visitors {
-			if time.Since(v.lastSeen) > rl.ttl {
-				delete(rl.visitors, key)
-			}
-		}
-		rl.mu.Unlock()
 	}
 }

@@ -1,6 +1,6 @@
 {
   "uid": "papyrus-red",
-  "title": "Papyrus — requests, cache, queue",
+  "title": "Papyrus — requests, cache, queue, limits",
   "tags": [
     "papyrus"
   ],
@@ -290,6 +290,47 @@
           "refId": "B",
           "expr": "histogram_quantile(0.95, sum by (le) (rate(analysis_job_duration_seconds_bucket[5m])))",
           "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Rate limit decisions",
+      "description": "A rising degraded line means the shared limiter is unreachable and each replica is counting alone — the budget has quietly become N times what it says. Nothing fails; the limit just stops meaning what it means.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "degraded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(rate_limit_decisions_total[5m]))",
+          "legendFormat": "{{outcome}}"
         }
       ]
     }

@@ -16,6 +16,7 @@ import (
 	"github.com/papyrus/gateway/internal/cache"
 	"github.com/papyrus/gateway/internal/config"
 	"github.com/papyrus/gateway/internal/observability"
+	"github.com/papyrus/gateway/internal/ratelimit"
 	"github.com/papyrus/gateway/internal/services"
 )
 
@@ -151,4 +152,40 @@ func Pool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("pinging the database: %w", err)
 	}
 	return pool, nil
+}
+
+// RateLimiter builds the request budget.
+//
+// With a Redis URL the budget is shared by every replica; without one it is per
+// process, which is the whole truth on a single instance. Either way a Redis
+// that stops answering degrades to the local limiter rather than failing
+// requests — see docs/adr/0009.
+func RateLimiter(
+	cfg *config.Config,
+	metrics *observability.Metrics,
+	logger *slog.Logger,
+) ratelimit.Limiter {
+	local := ratelimit.NewMemory(cfg.RateLimitRPM)
+
+	if cfg.RedisURL == "" {
+		logger.Info("rate limiting is per process", slog.Int("rpm", cfg.RateLimitRPM))
+		return ratelimit.NewFallback(nil, local, metrics, logger)
+	}
+
+	shared, err := ratelimit.NewShared(cfg.RedisURL, cfg.RateLimitRPM, redisTimeout)
+	if err != nil {
+		logger.Warn("rate limiting is per process: redis unavailable", slog.Any("error", err))
+		return ratelimit.NewFallback(nil, local, metrics, logger)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	if err := shared.Ping(ctx); err != nil {
+		// Reported, not enforced: Redis may well come up after the gateway does,
+		// and the limiter falls back until it does.
+		logger.Warn("rate limiting redis did not answer at startup", slog.Any("error", err))
+	}
+
+	logger.Info("rate limiting is shared across replicas", slog.Int("rpm", cfg.RateLimitRPM))
+	return ratelimit.NewFallback(shared, local, metrics, logger)
 }

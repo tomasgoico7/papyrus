@@ -121,6 +121,59 @@ services:
     depends_on:
       - prometheus
 
+  # ── Two replicas ─────────────────────────────────────────────────────────────
+  # The point of a shared rate limiter is only visible with more than one
+  # process. Two gateways behind a load balancer share one Redis, so a caller's
+  # budget is the configured one — not twice it.
+  #
+  #   docker compose --profile scale up --build
+  #   for i in $(seq 1 30); do curl -s -o /dev/null -w "%{http_code} "   #     -H "Authorization: Bearer <token>" -X POST localhost:8082/analyze; done
+  #
+  # Expect 200s up to the budget and 429s after, however the requests are
+  # spread between the two. Stop Redis mid-run and the log says
+  # "rate limiting degraded to this process only" — the budget doubles, because
+  # each replica is now counting alone, and nothing fails.
+  gateway-a: &scaled-gateway
+    build:
+      context: ./gateway
+    profiles: [scale]
+    environment:
+      PORT: 8080
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      AI_SERVICE_URL: http://ai-service:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RATE_LIMIT_RPM: ${SCALE_RATE_LIMIT_RPM:-10}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-60}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  gateway-b:
+    <<: *scaled-gateway
+
+  balancer:
+    image: caddy:2.9-alpine
+    profiles: [scale]
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - :8080
+      - --to
+      - gateway-a:8080
+      - --to
+      - gateway-b:8080
+    ports:
+      - "8082:8080"
+    depends_on:
+      - gateway-a
+      - gateway-b
+
   # ── Load testing ─────────────────────────────────────────────────────────────
   # A second gateway wired to a stub upstream, so a k6 run measures the gateway
   # instead of Gemini — and costs nothing. Bring it up with

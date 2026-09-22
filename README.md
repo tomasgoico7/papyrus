@@ -142,6 +142,7 @@ papyrus/
 │       ├── jobs/                # cola en Postgres, reclamada con SKIP LOCKED
 │       ├── middleware/          # CORS, auth, rate limiting, request id
 │       ├── observability/       # logger estructurado y métricas RED
+│       ├── ratelimit/           # presupuesto por usuario: local, en Redis, y el fallback
 │       ├── requestid/           # id de correlación y su transporte por contexto
 │       ├── worker/              # loop de la cola, backoff con jitter, dead letters
 │       └── services/, transport/, httpx/

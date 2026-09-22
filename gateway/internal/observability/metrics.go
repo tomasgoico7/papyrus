@@ -34,6 +34,8 @@ type Metrics struct {
 	jobsQueued    prometheus.Gauge
 	jobsRunning   prometheus.Gauge
 	jobsDead      prometheus.Gauge
+
+	rateLimits *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -105,6 +107,13 @@ func NewMetrics() *Metrics {
 				Help: "Jobs that gave up and are still on the table, awaiting attention.",
 			},
 		),
+		rateLimits: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rate_limit_decisions_total",
+				Help: "Rate limit decisions: allowed, limited, or degraded to this process.",
+			},
+			[]string{"outcome"},
+		),
 	}
 
 	m.registry.MustRegister(
@@ -118,6 +127,7 @@ func NewMetrics() *Metrics {
 		m.jobsQueued,
 		m.jobsRunning,
 		m.jobsDead,
+		m.rateLimits,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -216,4 +226,11 @@ func (m *Metrics) SetQueueDepth(queued, running, dead int) {
 	m.jobsQueued.Set(float64(queued))
 	m.jobsRunning.Set(float64(running))
 	m.jobsDead.Set(float64(dead))
+}
+
+// RecordRateLimit counts one decision. A rising degraded line means the shared
+// limiter is unreachable and the budget has quietly become per replica — which
+// is the kind of thing that is invisible until somebody is counting it.
+func (m *Metrics) RecordRateLimit(outcome string) {
+	m.rateLimits.WithLabelValues(outcome).Inc()
 }

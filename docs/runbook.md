@@ -3,7 +3,7 @@
 What to do when something is wrong. Written for whoever is looking at it at the
 time, which is usually one person with one terminal.
 
-The dashboard is *Papyrus — requests, cache, queue*, on Grafana. Locally:
+The dashboard is *Papyrus — requests, cache, queue, limits*, on Grafana. Locally:
 `docker compose --profile observability up`.
 
 ---
@@ -130,6 +130,19 @@ tunes it.
 
 This is only bearable because the analysis is queued. Waiting two minutes was not
 an option while a browser held the request open; polling a job makes it one.
+
+---
+
+## The rate limit stopped being shared
+
+A rising `degraded` line on *Rate limit decisions*, or
+`rate limiting degraded to this process only` in the log, means the limiter
+cannot reach Redis. Requests keep flowing — each replica falls back to counting
+on its own — but the budget is now the configured one *per replica* rather than
+in total.
+
+Nothing is broken and nothing needs to be restarted. Check Redis; the limiter
+rejoins on its own and logs `rate limiting is shared again`.
 
 ---
 

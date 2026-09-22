@@ -43,13 +43,13 @@ func New(
 	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
 	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	keySet := auth.NewKeySet(cfg.JWKSURL)
-	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
+	rateLimiter := app.RateLimiter(cfg, metrics, logger)
 
 	engine.GET("/health", handlers.Health)
 	engine.GET(metrics.Path(), gin.WrapH(metrics.Handler()))
 
 	authed := engine.Group("/")
-	authed.Use(middleware.Auth(keySet.Keyfunc), rateLimiter.Middleware())
+	authed.Use(middleware.Auth(keySet.Keyfunc), middleware.RateLimit(rateLimiter))
 	authed.POST("/analyze", analyzeHandler.Handle)
 	authed.POST("/tailor/questions", tailorHandler.Questions)
 	authed.POST("/tailor/generate", tailorHandler.Generate)
