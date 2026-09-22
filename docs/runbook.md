@@ -136,6 +136,20 @@ unreachable, so this should degrade rather than fail. If it does not:
 
 ---
 
+## Connecting to the database
+
+`DATABASE_URL` should be the **transaction-mode pooler** (port 6543), not the
+direct connection. A worker that polls holds a connection open; direct ones are
+a small, shared budget for the whole project.
+
+The pool runs in exec mode because of that: a transaction pooler gives each
+statement a different backend, so pgx's prepared-statement cache would miss and
+report `prepared statement already exists`. Nothing needs to be configured for
+this — it is set in code — but it is worth knowing if the connection string is
+ever changed to a direct one.
+
+---
+
 ## Rolling back
 
 Every service deploys from `main`. Render redeploys a previous commit from its

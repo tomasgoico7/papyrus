@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/papyrus/gateway/internal/cache"
@@ -125,6 +126,14 @@ func Pool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing database url: %w", err)
 	}
+	// A transaction-mode pooler hands each statement a different backend, so a
+	// prepared statement cached against one connection is not there on the next
+	// — which surfaces as "prepared statement already exists" long after the
+	// cause. Exec mode skips the cache. The queue runs a handful of statements
+	// per second, so what it costs is not measurable, and it is the difference
+	// between working and not behind pgbouncer.
+	options.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+
 	options.MaxConns = int32(max(4, cfg.WorkerConcurrency+2))
 	options.MinConns = 1
 	options.MaxConnIdleTime = time.Minute
