@@ -105,7 +105,7 @@ Do **not** requeue `unreadable_cv`. It will fail again, identically.
 
 `upstream_rate_limited` with a body of `Too Many Requests` is the platform, not
 the model. A free instance that is asleep answers 429 while it wakes, and the
-worker'"'"'s own retries are enough concurrency to trigger it. The analysis is fine;
+worker's own retries are enough concurrency to trigger it. The analysis is fine;
 the service was not there yet.
 
 The durable fix is not more retries — it is keeping the service awake. The
