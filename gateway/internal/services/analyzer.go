@@ -24,9 +24,17 @@ type UpstreamError struct {
 	// RetryAfter carries the upstream header verbatim when it sent one, so the
 	// gateway can hand the client the same hint instead of inventing a delay.
 	RetryAfter string
+	// Body is a short prefix of what the upstream actually said, kept only when
+	// it was not our error envelope. Discarding it leaves nothing to diagnose
+	// from: a proxy page, a platform error and a cold start all collapse into
+	// the same unhelpful message otherwise.
+	Body string
 }
 
 func (e *UpstreamError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf("ai service responded %d: %s (body: %s)", e.StatusCode, e.Message, e.Body)
+	}
 	return fmt.Sprintf("ai service responded %d: %s", e.StatusCode, e.Message)
 }
 
@@ -145,6 +153,7 @@ func decodeUpstreamErrorBytes(statusCode int, retryAfter string, data []byte) er
 			Code:       "ai_service_error",
 			Message:    "The AI service returned an unexpected response.",
 			RetryAfter: retryAfter,
+			Body:       snippet(data),
 		}
 	}
 
@@ -154,4 +163,16 @@ func decodeUpstreamErrorBytes(statusCode int, retryAfter string, data []byte) er
 		Message:    envelope.Error.Message,
 		RetryAfter: retryAfter,
 	}
+}
+
+// maxSnippet bounds what is kept of an unrecognised upstream body: enough to
+// tell a proxy page from a platform error, not enough to fill a log line.
+const maxSnippet = 200
+
+func snippet(data []byte) string {
+	text := strings.Join(strings.Fields(string(data)), " ")
+	if len(text) > maxSnippet {
+		return text[:maxSnippet] + "…"
+	}
+	return text
 }

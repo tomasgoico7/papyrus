@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -357,6 +358,14 @@ func retriable(err error) bool {
 func describe(err error) (code, message string) {
 	var upstream *services.UpstreamError
 	if errors.As(err, &upstream) {
+		if upstream.Code == "ai_service_error" {
+			// The client localises by code, so this message is only ever read
+			// while diagnosing — which is exactly when the status and what the
+			// upstream actually said are the only things worth having.
+			return upstream.Code, fmt.Sprintf(
+				"upstream status %d: %s", upstream.StatusCode, upstream.Body,
+			)
+		}
 		return upstream.Code, upstream.Message
 	}
 	if errors.Is(err, context.DeadlineExceeded) {

@@ -285,3 +285,70 @@ func TestUpstreamErrorClassifiesStatusBands(t *testing.T) {
 		}
 	}
 }
+
+func TestUpstreamErrorKeepsWhatAnUnrecognisedUpstreamSaid(t *testing.T) {
+	// A proxy page, a platform error and a service still booting all arrive as
+	// "not our envelope". Without the status and a piece of the body they are
+	// indistinguishable, and the failure cannot be diagnosed after the fact.
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`<html>
+  <head><title>502 Bad Gateway</title></head>
+</html>`))
+	}))
+	defer ai.Close()
+
+	client := services.NewAnalyzerClient(ai.URL, "", ai.Client())
+	_, err := client.Analyze(context.Background(), analyzeRequest())
+
+	var upstream *services.UpstreamError
+	if !errors.As(err, &upstream) {
+		t.Fatalf("error = %v, want an *UpstreamError", err)
+	}
+
+	// Collapsed onto one line, because a multi-line HTML page inside a log
+	// record is unreadable. Comparing to the exact expected line checks the
+	// content and the flattening at once.
+	const want = "<html> <head><title>502 Bad Gateway</title></head> </html>"
+	if upstream.Body != want {
+		t.Errorf("body = %q, want %q", upstream.Body, want)
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("error string = %q, want the status in it", err)
+	}
+}
+
+func TestUpstreamErrorTruncatesALongBody(t *testing.T) {
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(strings.Repeat("x", 5000)))
+	}))
+	defer ai.Close()
+
+	client := services.NewAnalyzerClient(ai.URL, "", ai.Client())
+	_, err := client.Analyze(context.Background(), analyzeRequest())
+
+	var upstream *services.UpstreamError
+	_ = errors.As(err, &upstream)
+	if len(upstream.Body) > 250 {
+		t.Errorf("body is %d characters; a log line is not the place for the whole page", len(upstream.Body))
+	}
+}
+
+func TestEnvelopeErrorsCarryNoBodySnippet(t *testing.T) {
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":{"code":"unreadable_cv","message":"Not readable."}}`))
+	}))
+	defer ai.Close()
+
+	client := services.NewAnalyzerClient(ai.URL, "", ai.Client())
+	_, err := client.Analyze(context.Background(), analyzeRequest())
+
+	var upstream *services.UpstreamError
+	_ = errors.As(err, &upstream)
+	// The upstream explained itself; there is nothing to salvage from the body.
+	if upstream.Body != "" {
+		t.Errorf("body = %q, want none when the envelope was understood", upstream.Body)
+	}
+}
