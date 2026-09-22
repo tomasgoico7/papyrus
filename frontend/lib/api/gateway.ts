@@ -21,25 +21,46 @@ export class GatewayError extends Error {
   }
 }
 
-export async function requestAnalysis({
+/** The multipart body both analyze endpoints expect. */
+export function buildAnalysisForm({
   cv,
   jobOffer,
   jobTitle,
-  accessToken,
-}: AnalyzeInput): Promise<AnalysisResult> {
+}: Omit<AnalyzeInput, "accessToken">): FormData {
   const form = new FormData();
   form.append("cv", cv);
   form.append("jobOffer", jobOffer);
   if (jobTitle) {
     form.append("jobTitle", jobTitle);
   }
+  return form;
+}
 
+/** Turns the shared error envelope into a GatewayError. */
+export async function readGatewayError(response: Response): Promise<GatewayError> {
+  const envelope = (await response.json().catch(() => null)) as {
+    error?: { code?: string; message?: string };
+  } | null;
+
+  return new GatewayError(
+    envelope?.error?.message ?? "The analysis couldn't be completed.",
+    envelope?.error?.code ?? "unknown_error",
+    response.status,
+  );
+}
+
+export async function requestAnalysis({
+  cv,
+  jobOffer,
+  jobTitle,
+  accessToken,
+}: AnalyzeInput): Promise<AnalysisResult> {
   let response: Response;
   try {
     response = await fetch(`${env.NEXT_PUBLIC_GATEWAY_URL}/analyze`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
-      body: form,
+      body: buildAnalysisForm({ cv, jobOffer, jobTitle }),
     });
   } catch {
     throw new GatewayError(
@@ -50,14 +71,7 @@ export async function requestAnalysis({
   }
 
   if (!response.ok) {
-    const envelope = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
-    } | null;
-    throw new GatewayError(
-      envelope?.error?.message ?? "The analysis couldn't be completed.",
-      envelope?.error?.code ?? "unknown_error",
-      response.status,
-    );
+    throw await readGatewayError(response);
   }
 
   return (await response.json()) as AnalysisResult;
@@ -75,6 +89,8 @@ const ERROR_CODE_KEYS: Record<string, keyof Dictionary["result"]["errors"]> = {
   upstream_timeout: "upstreamTimeout",
   upstream_unavailable: "upstreamUnavailable",
   upstream_rate_limited: "upstreamRateLimited",
+  still_running: "stillRunning",
+  queue_unavailable: "queueUnavailable",
   rate_limited: "rateLimited",
   // The gateway sends this when the AI service answers with something that is
   // not our error envelope — a proxy page, usually. Without it here the user

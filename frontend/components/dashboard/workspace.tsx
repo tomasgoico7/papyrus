@@ -23,7 +23,8 @@ import {
   saveAnalysis,
   saveTailoredCv,
 } from "@/lib/analyses/repository";
-import { GatewayError, localizeGatewayError, requestAnalysis } from "@/lib/api/gateway";
+import { runAnalysis } from "@/lib/api/analyses";
+import { GatewayError, localizeGatewayError } from "@/lib/api/gateway";
 import {
   createCvDownloadUrl,
   downloadStoredCv,
@@ -70,6 +71,9 @@ export function Workspace({ userId }: { userId: string }) {
   const { t } = useI18n();
   const supabase = useMemo(() => createClient(), []);
   const mainRef = useRef<HTMLElement>(null);
+  // Polling outlives the call that started it, so a new analysis — or leaving
+  // the page — has to be able to call it off.
+  const pollingRef = useRef<AbortController | null>(null);
 
   // Desktop scrolls the main pane; mobile scrolls the page.
   function resetScroll() {
@@ -140,8 +144,14 @@ export function Workspace({ userId }: { userId: string }) {
     setCvFile(null);
   }
 
+  useEffect(() => () => pollingRef.current?.abort(), []);
+
   async function handleAnalyze() {
     if (!cvFile && !selectedCv) return;
+
+    pollingRef.current?.abort();
+    const polling = new AbortController();
+    pollingRef.current = polling;
 
     setStatus("analyzing");
     setErrorMessage(null);
@@ -173,12 +183,15 @@ export function Workspace({ userId }: { userId: string }) {
       }
 
       const normalizedTitle = jobTitle.trim() || undefined;
-      const result = await requestAnalysis({
-        cv: cvForAnalysis,
-        jobOffer,
-        jobTitle: normalizedTitle,
-        accessToken: session.access_token,
-      });
+      const result = await runAnalysis(
+        {
+          cv: cvForAnalysis,
+          jobOffer,
+          jobTitle: normalizedTitle,
+          accessToken: session.access_token,
+        },
+        { signal: polling.signal },
+      );
 
       // Persisting a freshly uploaded CV is best-effort: a storage hiccup must
       // not cost the user the analysis they just ran.
@@ -220,6 +233,11 @@ export function Workspace({ userId }: { userId: string }) {
       });
       setStatus("ready");
     } catch (error) {
+      // An aborted poll means the user started something else; the screen
+      // already belongs to that request.
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
       setStatus("error");
       setErrorMessage(
         error instanceof GatewayError
