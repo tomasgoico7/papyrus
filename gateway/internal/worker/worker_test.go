@@ -674,3 +674,71 @@ func TestWorkerStillRecordsTheOutcomeAfterALongWait(t *testing.T) {
 		t.Error("the job was never rescheduled: the outcome was written through an expired context")
 	}
 }
+
+// blockingUpstream answers only when released, or when the caller gives up.
+// The difference from wakingUpstream matters: a probe that returns instantly
+// cannot show whether the wait is bounded, and the real one blocks for as long
+// as the platform takes to start.
+type blockingUpstream struct {
+	probes  atomic.Int64
+	release chan struct{}
+}
+
+func (u *blockingUpstream) Ready(ctx context.Context) error {
+	u.probes.Add(1)
+	select {
+	case <-u.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestWorkerBoundsTheWaitEvenWhenAProbeHangs(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	// Never released: the probe blocks until something cuts it off.
+	upstream := &blockingUpstream{release: make(chan struct{})}
+
+	start := time.Now()
+	runWith(t, queue, stubAnalyzer{err: throttled()}, upstream)
+	elapsed := time.Since(start)
+
+	// runWith allows a 2 second budget. A probe with no timeout of its own must
+	// still be cut off by it, or the budget bounds only the gaps between probes
+	// and the worker slot is held for as long as the upstream cares to hang.
+	if elapsed > 4*time.Second {
+		t.Errorf("the wait took %v; the budget is 2s and must bound the probe too", elapsed)
+	}
+	if upstream.probes.Load() == 0 {
+		t.Error("the upstream was never probed")
+	}
+	if _, retried, _ := queue.snapshot(); len(retried) == 0 {
+		t.Error("the job was not rescheduled after the wait was cut off")
+	}
+}
+
+func TestWorkerRetriesPromptlyOnceALongProbeSucceeds(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	upstream := &blockingUpstream{release: make(chan struct{})}
+
+	// The upstream comes back part way through the wait, as a starting instance
+	// does: the probe is still open when it happens.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		close(upstream.release)
+	}()
+
+	before := time.Now()
+	runWith(t, queue, stubAnalyzer{err: throttled()}, upstream)
+
+	_, retried, _ := queue.snapshot()
+	runAfter, ok := retried["j1"]
+	if !ok {
+		t.Fatal("the job was not rescheduled")
+	}
+	// Once it has answered there is nothing left to wait for, so the next
+	// attempt is due almost immediately rather than after the throttle delay.
+	if wait := runAfter.Sub(before); wait > time.Second {
+		t.Errorf("next attempt in %v; an upstream that answered should be retried at once", wait)
+	}
+}

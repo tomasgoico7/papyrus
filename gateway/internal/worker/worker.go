@@ -102,7 +102,12 @@ func (c Config) withDefaults() Config {
 		c.MaxBackoff = 5 * time.Minute
 	}
 	if c.WakeBudget <= 0 {
-		c.WakeBudget = 60 * time.Second
+		// One measured cold start is 31 seconds, and the probe has to be able to
+		// ride out a whole one rather than most of one: a wait that gives up at
+		// the 30 second mark is not a short wait, it is a wait that never
+		// succeeds. The room above that covers a slower start, and the ceiling
+		// still leaves the first attempt inside the caller's own patience.
+		c.WakeBudget = 100 * time.Second
 	}
 	if c.WakeProbeInterval <= 0 {
 		c.WakeProbeInterval = 5 * time.Second
@@ -446,15 +451,21 @@ func (w *Worker) waitForUpstream(ctx context.Context, logger *slog.Logger) bool 
 	}
 
 	started := time.Now()
-	deadline := started.Add(w.cfg.WakeBudget)
 
-	for time.Now().Before(deadline) {
-		if err := w.readiness.Ready(ctx); err == nil {
+	// The budget bounds the whole wait, probes included. A probe is deliberately
+	// allowed to block for most of it — holding the request open is what keeps a
+	// scale-to-zero platform starting up, and hanging up resets that — so a
+	// budget that only gated the gaps between probes would not bound anything.
+	waitCtx, cancel := context.WithTimeout(ctx, w.cfg.WakeBudget)
+	defer cancel()
+
+	for waitCtx.Err() == nil {
+		if err := w.readiness.Ready(waitCtx); err == nil {
 			logger.Info("upstream came back", slog.Duration("waited", time.Since(started)))
 			return true
 		}
-		if !sleep(ctx, w.cfg.WakeProbeInterval) {
-			return false
+		if !sleep(waitCtx, w.cfg.WakeProbeInterval) {
+			break
 		}
 	}
 

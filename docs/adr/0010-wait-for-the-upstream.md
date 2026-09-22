@@ -25,9 +25,19 @@ could not fix it: the worker was asking a question that never arrived.
 ## Decision
 
 **On a throttled failure, the worker waits for the upstream to report itself
-ready before scheduling the retry.** It polls `GET /health` every five seconds
-for up to a minute, and when the service answers it retries two seconds later
-rather than after the throttle delay.
+ready before scheduling the retry.** It issues `GET /health` and holds the
+request open until the service answers, for up to 100 seconds in total, and when
+it does answer the retry is scheduled two seconds later rather than after the
+throttle delay.
+
+**Holding the request open is the mechanism, not an implementation detail.** A
+scale-to-zero platform starts an instance because a request is waiting for it;
+hanging up says nobody is, and the start is abandoned. Short probes on a timer
+are therefore not a gentler version of this — they are a version that cannot
+work. The first deployment used a 30 second probe timeout against a cold start
+measured at 31, and every wait it performed reset a start it had just triggered.
+The timeout is 90 seconds now, and the budget bounds the probe rather than only
+the gaps between probes.
 
 **The probe is unauthenticated on purpose.** A readiness check that can be refused
 on credentials tells you nothing about readiness — and here it would also fail to
@@ -53,9 +63,15 @@ seconds after the service is actually able to serve it, instead of burning three
 attempts and landing in the dead letter queue. The queue depth matters more than
 the latency here: a job that fails is a person who has to ask again.
 
-A worker slot is held for up to a minute while waiting. With the default
+A worker slot is held for up to 100 seconds while waiting. With the default
 concurrency of two this is real but acceptable — the alternative was holding it
 for 135 seconds across three doomed attempts.
+
+The numbers are tied to a measurement that can drift. A cold start that grows
+past 90 seconds silently returns the system to the old behaviour: the wait
+expires, the job takes the long backoff, and nothing announces that the
+mechanism stopped working. `upstream did not come back` in the log is the signal
+to re-measure rather than to assume the upstream is down.
 
 The wait is visible: `upstream came back` carries how long it took, which turns
 the cold start from an inference into a measurement.

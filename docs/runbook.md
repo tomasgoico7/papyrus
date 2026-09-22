@@ -124,16 +124,18 @@ services get suspended instead.
 
 So the cold start is tolerated rather than prevented, and the worker waits it out
 deliberately instead of retrying blind. A 429 is not treated as an attempt to
-repeat later on a timer: the worker polls `GET /health` on the AI service every
-five seconds for up to a minute, and schedules the retry two seconds after it
-answers.
+repeat later on a timer: the worker issues `GET /health` on the AI service and
+holds it open until the service answers, up to 100 seconds, then schedules the
+retry two seconds later.
 
-The probe is unauthenticated, and that is the point. A request carrying a token
-appears to be refused at the platform edge without ever reaching the scheduler
-that starts a sleeping instance — which is why retrying an analysis three times
-woke nothing. A bare health request does get through.
+Two things make that work, and both are easy to undo by accident. The probe is
+unauthenticated: a request carrying a token is refused at the platform edge
+without reaching the scheduler that starts a sleeping instance. And the probe
+waits rather than samples: the instance starts *because* a request is waiting
+for it, so hanging up early abandons the start. A cold start measured 31 seconds;
+the probe allows 90.
 
-If the minute passes with no answer, the attempt falls back to the long throttle
+If the budget passes with no answer, the attempt falls back to the long throttle
 delay — three attempts spanning 90 to 135 seconds — which still outlasts a slow
 wake, and stops the retries from being the concurrency that provokes the 429 in
 the first place.
@@ -142,10 +144,23 @@ In the worker log, `upstream came back` with a `waited` duration means the wait
 worked and the next attempt is imminent. `upstream did not come back` means the
 budget expired and the job is on the slow path.
 
-None of the four numbers are environment variables; they are the defaults in
-`Config.withDefaults` in `gateway/internal/worker/worker.go`, each with the
-reasoning next to it. Changing one is a deploy, on purpose — they were chosen
-against a measured cold start, not guessed at during an incident.
+`upstream did not come back` on every attempt, with the AI service reachable by
+hand, means the cold start has outgrown the probe timeout. Measure it before
+changing anything:
+
+```
+curl -s -o /dev/null -w '%{http_code} %{time_total}s
+' --max-time 120   https://papyrus-94mv.onrender.com/health
+```
+
+Run that against an instance that has been idle for twenty minutes or more; a
+warm one answers in under a second and tells you nothing.
+
+The numbers are not environment variables. They are the defaults in
+`Config.withDefaults` in `gateway/internal/worker/worker.go` and
+`readinessTimeout` in `gateway/internal/app/deps.go`, each with the reasoning
+next to it. Changing one is a deploy, on purpose — they are set against a
+measured cold start, not guessed at during an incident.
 
 This is only bearable because the analysis is queued. Waiting two minutes was not
 an option while a browser held the request open; polling a job makes it one.

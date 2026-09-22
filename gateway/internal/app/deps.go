@@ -28,10 +28,12 @@ const (
 	versionTTL = 5 * time.Minute
 	// A cache lookup that cannot beat the upstream is not worth waiting for.
 	redisTimeout = 250 * time.Millisecond
-	// Generous: a readiness probe to a service that is starting up is expected
-	// to be slow, and a short timeout would report "not ready" for the whole
-	// wake rather than noticing the moment it finishes.
-	readinessTimeout = 30 * time.Second
+	// Longer than a cold start, measured at 31 seconds, and not by a little: the
+	// probe is supposed to wait out the start rather than sample it. A timeout
+	// under the start time reports "not ready" forever — and worse, hanging up
+	// tells the platform nobody is waiting, so the start it triggered is
+	// abandoned and the next probe begins again from nothing.
+	readinessTimeout = 90 * time.Second
 )
 
 // buildAnalyzer returns the analyzer the handler will use: the bare client when
