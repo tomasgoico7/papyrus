@@ -167,6 +167,30 @@ an option while a browser held the request open; polling a job makes it one.
 
 ---
 
+## Which build is running
+
+Before diagnosing anything else, check that the fix you are reasoning about is
+actually deployed:
+
+```
+curl -s https://papyrus-gateway.onrender.com/health
+```
+
+The `revision` is the short commit. Compare it against `git log --oneline -1` on
+`main`. A platform that rebuilds on every push takes minutes to do so, and a
+redeploy also kills whatever the worker had in flight — so a job that spans a
+deploy runs its first attempt on one build and its next on another, which makes
+its timings mean nothing.
+
+`unknown` means nothing stamped the build. That is expected locally; in a
+deployment it means `RENDER_GIT_COMMIT` is not reaching the process.
+
+This is the first check because the alternative is inferring the deployed
+version from how long retries took, which is guesswork performed at the worst
+possible moment.
+
+---
+
 ## The rate limit stopped being shared
 
 A rising `degraded` line on *Rate limit decisions*, or
