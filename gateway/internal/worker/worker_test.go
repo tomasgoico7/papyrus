@@ -742,3 +742,52 @@ func TestWorkerRetriesPromptlyOnceALongProbeSucceeds(t *testing.T) {
 		t.Errorf("next attempt in %v; an upstream that answered should be retried at once", wait)
 	}
 }
+
+func TestWorkerShutsDownPromptlyWhileWaitingForAnUpstream(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	upstream := &blockingUpstream{release: make(chan struct{})}
+
+	w := worker.New(
+		queue,
+		stubAnalyzer{err: throttled()},
+		upstream,
+		observability.NewMetrics(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		worker.Config{
+			Concurrency:  1,
+			PollInterval: time.Millisecond,
+			JobTimeout:   time.Second,
+			BaseBackoff:  10 * time.Millisecond,
+			MaxBackoff:   time.Minute,
+			// Far longer than this test is willing to wait: shutdown must not
+			// be paced by the budget.
+			WakeBudget:        30 * time.Second,
+			WakeProbeInterval: 10 * time.Millisecond,
+			DepthInterval:     time.Hour,
+			PurgeInterval:     time.Hour,
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+
+	// Wait until a probe is actually in flight. Waiting on queue.drained instead
+	// would be waiting for the slot to free — which only happens once the wait
+	// is over, so the cancel would arrive after the thing it is meant to
+	// interrupt and the test would pass without testing anything.
+	for upstream.probes.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+
+	// A deploy lands while a job is waiting out a cold start. Every platform
+	// that restarts a process gives it a grace period measured in seconds; a
+	// worker that ignores the signal until its own budget expires gets killed
+	// mid-write instead of stopping cleanly.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker kept waiting for the upstream after being told to stop")
+	}
+}
