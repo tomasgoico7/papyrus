@@ -1,4 +1,7 @@
-package router
+// Package app is the composition root: the wiring that both the API and the
+// worker need, in one place so the two cannot drift into analysing requests
+// differently.
+package app
 
 import (
 	"context"
@@ -29,7 +32,7 @@ const (
 // still keeps an in-process cache, which is enough for a single instance; Redis
 // adds what one process cannot have — entries shared between replicas and
 // entries that survive a restart.
-func buildAnalyzer(
+func Analyzer(
 	cfg *config.Config,
 	upstream *http.Client,
 	metrics *observability.Metrics,
@@ -41,7 +44,7 @@ func buildAnalyzer(
 		return client
 	}
 
-	store, localTTL := buildStore(cfg, logger)
+	store, localTTL := cacheStore(cfg, logger)
 	logger.Info("analysis cache enabled",
 		slog.Duration("ttl", cfg.CacheTTL),
 		slog.Duration("local_ttl", localTTL),
@@ -58,7 +61,7 @@ func buildAnalyzer(
 	)
 }
 
-func buildStore(cfg *config.Config, logger *slog.Logger) (cache.Store, time.Duration) {
+func cacheStore(cfg *config.Config, logger *slog.Logger) (cache.Store, time.Duration) {
 	local := cache.NewLRU(cfg.CacheLocalEntries)
 
 	if cfg.RedisURL == "" {
@@ -86,4 +89,24 @@ func buildStore(cfg *config.Config, logger *slog.Logger) (cache.Store, time.Dura
 
 	localTTL := min(cfg.CacheTTL, localTTLWithRedis)
 	return cache.NewTiered(local, shared, localTTL), localTTL
+}
+
+// UpstreamClient is shared by every client of the AI service so they pool
+// connections to the single upstream instead of keeping a pool each.
+//
+// The default transport caps idle connections per host at 2, which under any
+// concurrency forces a fresh dial — and a fresh TLS handshake — per request.
+// The client timeout sits just above the per-request context deadline so the
+// context still wins the race and callers get a 504 rather than a bare
+// transport error.
+func UpstreamClient(requestTimeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 100
+	transport.IdleConnTimeout = 90 * time.Second
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   requestTimeout + 5*time.Second,
+	}
 }
