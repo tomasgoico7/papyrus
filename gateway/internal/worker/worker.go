@@ -48,6 +48,10 @@ type Config struct {
 	// BaseBackoff and MaxBackoff bound the retry delay.
 	BaseBackoff time.Duration
 	MaxBackoff  time.Duration
+	// ThrottleBackoff replaces BaseBackoff when the upstream refused for
+	// capacity reasons. It is deliberately much larger: being throttled means
+	// the far side needs time, and asking again sooner is what caused it.
+	ThrottleBackoff time.Duration
 	// BookkeepingTimeout bounds writing an outcome back to the queue. It is
 	// deliberately separate from JobTimeout: recording that a job timed out
 	// must not itself be subject to the deadline that just expired.
@@ -82,6 +86,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxBackoff <= 0 {
 		c.MaxBackoff = 5 * time.Minute
+	}
+	if c.ThrottleBackoff <= 0 {
+		// Three attempts then span roughly 90 to 135 seconds, which outlasts a
+		// platform that parks an idle service and takes tens of seconds to bring
+		// it back — the case this exists for.
+		c.ThrottleBackoff = 30 * time.Second
 	}
 	if c.BookkeepingTimeout <= 0 {
 		c.BookkeepingTimeout = 15 * time.Second
@@ -278,7 +288,15 @@ func (w *Worker) handleFailure(
 		return
 	}
 
-	delay := backoff(job.Attempts, w.cfg.BaseBackoff, w.cfg.MaxBackoff)
+	// A throttled upstream is not a flaky one: it is telling us it needs room.
+	// Retrying on the ordinary schedule is what turns one cold start into three
+	// refusals.
+	base := w.cfg.BaseBackoff
+	if upstreamThrottled(cause) {
+		base = w.cfg.ThrottleBackoff
+	}
+
+	delay := backoff(job.Attempts, base, w.cfg.MaxBackoff)
 	if err := w.queue.Retry(ctx, job.ID, time.Now().Add(delay), code, message); err != nil {
 		logger.Warn("rescheduling the job failed", slog.Any("error", err))
 		w.metrics.RecordJob(observability.JobLost, elapsed)
@@ -371,6 +389,11 @@ func retriable(err error) bool {
 	// transient. Retrying something permanent costs a few attempts; refusing to
 	// retry something transient loses the analysis.
 	return true
+}
+
+func upstreamThrottled(err error) bool {
+	var upstream *services.UpstreamError
+	return errors.As(err, &upstream) && upstream.IsThrottled()
 }
 
 func describe(err error) (code, message string) {

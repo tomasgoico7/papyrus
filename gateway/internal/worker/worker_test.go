@@ -457,3 +457,60 @@ func TestWorkerRecordsThrottlingAsThrottling(t *testing.T) {
 		t.Errorf("recorded %q, want upstream_rate_limited", got)
 	}
 }
+
+func TestWorkerWaitsLongerWhenTheUpstreamIsThrottling(t *testing.T) {
+	// The case this exists for: a platform parks an idle service and takes tens
+	// of seconds to bring it back, answering 429 in the meantime. Retrying on
+	// the ordinary schedule spends all three attempts inside that window — and
+	// the retries are themselves the concurrency that provokes the 429.
+	throttled := &services.UpstreamError{StatusCode: 429, Code: "ai_service_error", Body: "Too Many Requests"}
+
+	delays := map[string]time.Duration{}
+	for name, cause := range map[string]error{
+		"ordinary":  errors.New("connection reset"),
+		"throttled": throttled,
+	} {
+		queue := newFakeQueue(job("j1", 1, 3))
+		before := time.Now()
+
+		w := worker.New(
+			queue,
+			stubAnalyzer{err: cause},
+			observability.NewMetrics(),
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+			worker.Config{
+				Concurrency:     1,
+				PollInterval:    time.Millisecond,
+				JobTimeout:      time.Second,
+				BaseBackoff:     20 * time.Millisecond,
+				ThrottleBackoff: 2 * time.Second,
+				MaxBackoff:      time.Minute,
+				DepthInterval:   time.Hour,
+				PurgeInterval:   time.Hour,
+			},
+		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { w.Run(ctx); close(done) }()
+		<-queue.drained
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+		<-done
+
+		_, retried, _ := queue.snapshot()
+		runAfter, ok := retried["j1"]
+		if !ok {
+			t.Fatalf("%s: the job was not rescheduled", name)
+		}
+		delays[name] = runAfter.Sub(before)
+	}
+
+	if delays["throttled"] <= delays["ordinary"] {
+		t.Errorf("throttled waits %v, ordinary waits %v; being told to slow down should mean waiting longer",
+			delays["throttled"], delays["ordinary"])
+	}
+	if delays["throttled"] < time.Second {
+		t.Errorf("throttled retry scheduled in %v; too soon to let the upstream come back", delays["throttled"])
+	}
+}

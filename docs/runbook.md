@@ -117,8 +117,19 @@ ten minutes it asks for. Check its history before trusting it:
 gh run list --workflow keep-warm
 ```
 
-An external pinger (UptimeRobot, cron-job.org, both free) hitting `/health` every
-five minutes is what actually holds a free instance open.
+An external pinger would hold the instance open, and is the wrong answer here:
+Render's free allowance is instance-hours shared across services, and keeping two
+of them awake around the clock spends roughly twice what the month provides. The
+services get suspended instead.
+
+So the cold start is tolerated rather than prevented. A throttled upstream gets a
+much longer retry delay than an ordinary failure — three attempts spanning 90 to
+135 seconds — which outlasts the wake, and stops the retries from being the
+concurrency that provokes the 429 in the first place. `WORKER_THROTTLE_BACKOFF_SECONDS`
+tunes it.
+
+This is only bearable because the analysis is queued. Waiting two minutes was not
+an option while a browser held the request open; polling a job makes it one.
 
 ---
 
