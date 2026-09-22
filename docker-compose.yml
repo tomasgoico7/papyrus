@@ -37,6 +37,9 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       CACHE_TTL_HOURS: ${CACHE_TTL_HOURS:-168}
       CACHE_LOCAL_ENTRIES: ${CACHE_LOCAL_ENTRIES:-256}
+      DATABASE_URL: ${DATABASE_URL:-}
+      RUN_WORKER: ${RUN_WORKER:-false}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
     ports:
       - "8080:8080"
     depends_on:
