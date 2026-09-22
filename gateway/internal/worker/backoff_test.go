@@ -5,6 +5,35 @@ import (
 	"time"
 )
 
+// TestBackoffNeverDrawsADelayTooShortToHelp is the one this file exists for.
+// Three attempts once burned themselves out in fourteen seconds against an
+// upstream that takes twenty to fifty to wake up, because pure jitter is free to
+// draw almost nothing.
+func TestBackoffNeverDrawsADelayTooShortToHelp(t *testing.T) {
+	const base = 10 * time.Second
+
+	for range 500 {
+		if got := backoff(1, base, time.Minute); got < base/2 {
+			t.Fatalf("first attempt waited %v, below the %v floor", got, base/2)
+		}
+	}
+
+	// What matters is the total: the three attempts a job gets have to span
+	// longer than the upstream needs to come back.
+	var worst time.Duration
+	for range 500 {
+		total := backoff(1, base, time.Minute) +
+			backoff(2, base, time.Minute) +
+			backoff(3, base, time.Minute)
+		if worst == 0 || total < worst {
+			worst = total
+		}
+	}
+	if worst < 30*time.Second {
+		t.Errorf("the unluckiest run waits only %v across three attempts; a cold start outlasts it", worst)
+	}
+}
+
 func TestBackoffGrowsAndThenStopsAtTheCeiling(t *testing.T) {
 	const (
 		base = time.Second
@@ -39,6 +68,13 @@ func TestBackoffSpreadsRetriesOut(t *testing.T) {
 
 	if len(seen) < 50 {
 		t.Errorf("only %d distinct delays in 200 draws; the retries are not spread out", len(seen))
+	}
+
+	// Spread, but never all the way down to nothing.
+	for delay := range seen {
+		if delay < 4*time.Second {
+			t.Errorf("drew %v for attempt 4; the floor should keep it well above that", delay)
+		}
 	}
 }
 

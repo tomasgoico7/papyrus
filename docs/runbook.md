@@ -98,6 +98,12 @@ are gone entirely, so this only reaches recent ones — which is the intent.
 
 Do **not** requeue `unreadable_cv`. It will fail again, identically.
 
+A cluster of `ai_service_error` shortly after a quiet period is usually the AI
+service waking up rather than being broken: on a free tier it sleeps after ~15
+minutes and takes 20-50s to come back. The retry schedule is sized to outlast
+that — roughly 35 to 70 seconds across three attempts — but a long enough sleep
+still wins. Requeue those; they succeed on the second pass.
+
 ---
 
 ## The table is growing

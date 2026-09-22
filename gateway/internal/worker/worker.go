@@ -70,7 +70,10 @@ func (c Config) withDefaults() Config {
 		c.JobTimeout = 90 * time.Second
 	}
 	if c.BaseBackoff <= 0 {
-		c.BaseBackoff = 5 * time.Second
+		// Wide enough that three attempts outlast a cold start on a platform
+		// that sleeps idle services: roughly 35 to 70 seconds of waiting before
+		// the job gives up, against the 20 to 50 one takes to wake.
+		c.BaseBackoff = 10 * time.Second
 	}
 	if c.MaxBackoff <= 0 {
 		c.MaxBackoff = 5 * time.Minute
