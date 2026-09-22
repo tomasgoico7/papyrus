@@ -122,11 +122,30 @@ Render's free allowance is instance-hours shared across services, and keeping tw
 of them awake around the clock spends roughly twice what the month provides. The
 services get suspended instead.
 
-So the cold start is tolerated rather than prevented. A throttled upstream gets a
-much longer retry delay than an ordinary failure — three attempts spanning 90 to
-135 seconds — which outlasts the wake, and stops the retries from being the
-concurrency that provokes the 429 in the first place. `WORKER_THROTTLE_BACKOFF_SECONDS`
-tunes it.
+So the cold start is tolerated rather than prevented, and the worker waits it out
+deliberately instead of retrying blind. A 429 is not treated as an attempt to
+repeat later on a timer: the worker polls `GET /health` on the AI service every
+five seconds for up to a minute, and schedules the retry two seconds after it
+answers.
+
+The probe is unauthenticated, and that is the point. A request carrying a token
+appears to be refused at the platform edge without ever reaching the scheduler
+that starts a sleeping instance — which is why retrying an analysis three times
+woke nothing. A bare health request does get through.
+
+If the minute passes with no answer, the attempt falls back to the long throttle
+delay — three attempts spanning 90 to 135 seconds — which still outlasts a slow
+wake, and stops the retries from being the concurrency that provokes the 429 in
+the first place.
+
+In the worker log, `upstream came back` with a `waited` duration means the wait
+worked and the next attempt is imminent. `upstream did not come back` means the
+budget expired and the job is on the slow path.
+
+None of the four numbers are environment variables; they are the defaults in
+`Config.withDefaults` in `gateway/internal/worker/worker.go`, each with the
+reasoning next to it. Changing one is a deploy, on purpose — they were chosen
+against a measured cold start, not guessed at during an incident.
 
 This is only bearable because the analysis is queued. Waiting two minutes was not
 an option while a browser held the request open; polling a job makes it one.

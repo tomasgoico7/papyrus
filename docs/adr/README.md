@@ -26,6 +26,7 @@ duplicating the depth here would double the maintenance for no reader.
 | [0007](0007-cache-analyses-in-two-tiers.md) | Cache analyses in two tiers | Accepted |
 | [0008](0008-queue-analyses-in-postgres.md) | Queue analyses in Postgres | Accepted |
 | [0009](0009-share-the-rate-limit-budget.md) | Share the rate limit budget | Accepted |
+| [0010](0010-wait-for-the-upstream.md) | Wait for the upstream instead of retrying blind | Accepted |
 
 Records 0001 to 0005 were written after the fact, from decisions already visible
 in the code. Everything from 0006 on is recorded as it is taken.

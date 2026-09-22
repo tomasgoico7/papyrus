@@ -53,6 +53,7 @@ func runWorker(t *testing.T, store *jobs.Store, analyzer services.Analyzer, unti
 	w := worker.New(
 		store,
 		analyzer,
+		nil, // no readiness probe: these tests are about the queue, not the upstream
 		observability.NewMetrics(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		worker.Config{

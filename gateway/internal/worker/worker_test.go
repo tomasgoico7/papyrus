@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -178,6 +179,7 @@ func run(t *testing.T, queue *fakeQueue, analyzer services.Analyzer) {
 	w := worker.New(
 		queue,
 		analyzer,
+		nil,
 		observability.NewMetrics(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		worker.Config{
@@ -400,6 +402,7 @@ func TestWorkerRecordsAJobThatRanOutOfTime(t *testing.T) {
 	w := worker.New(
 		queue,
 		hangingAnalyzer{},
+		nil,
 		observability.NewMetrics(),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		worker.Config{
@@ -476,6 +479,7 @@ func TestWorkerWaitsLongerWhenTheUpstreamIsThrottling(t *testing.T) {
 		w := worker.New(
 			queue,
 			stubAnalyzer{err: cause},
+			nil,
 			observability.NewMetrics(),
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 			worker.Config{
@@ -512,5 +516,161 @@ func TestWorkerWaitsLongerWhenTheUpstreamIsThrottling(t *testing.T) {
 	}
 	if delays["throttled"] < time.Second {
 		t.Errorf("throttled retry scheduled in %v; too soon to let the upstream come back", delays["throttled"])
+	}
+}
+
+// wakingUpstream is asleep for the first few probes and then answers, the way a
+// parked instance does once something reaches it.
+type wakingUpstream struct {
+	probes    atomic.Int64
+	readyFrom int64
+}
+
+func (u *wakingUpstream) Ready(context.Context) error {
+	if u.probes.Add(1) < u.readyFrom {
+		return errors.New("still starting")
+	}
+	return nil
+}
+
+func runWith(t *testing.T, queue *fakeQueue, analyzer services.Analyzer, readiness worker.Readiness) {
+	t.Helper()
+
+	w := worker.New(
+		queue,
+		analyzer,
+		readiness,
+		observability.NewMetrics(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		worker.Config{
+			Concurrency:       1,
+			PollInterval:      time.Millisecond,
+			JobTimeout:        time.Second,
+			BaseBackoff:       10 * time.Millisecond,
+			ThrottleBackoff:   10 * time.Second,
+			ReadyBackoff:      5 * time.Millisecond,
+			WakeBudget:        2 * time.Second,
+			WakeProbeInterval: 10 * time.Millisecond,
+			MaxBackoff:        time.Minute,
+			DepthInterval:     time.Hour,
+			PurgeInterval:     time.Hour,
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	<-queue.drained
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+	<-done
+}
+
+func throttled() error {
+	return &services.UpstreamError{StatusCode: 429, Code: "ai_service_error", Body: "Too Many Requests"}
+}
+
+// TestWorkerWakesAThrottledUpstreamInsteadOfWaitingBlind is the behaviour this
+// exists for. A parked instance answers 429 through its proxy, and those
+// refusals never reach the thing that would start it — so backing off longer
+// only changes how long it takes to fail. A readiness probe does get through.
+func TestWorkerWakesAThrottledUpstreamInsteadOfWaitingBlind(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	upstream := &wakingUpstream{readyFrom: 3}
+	before := time.Now()
+
+	runWith(t, queue, stubAnalyzer{err: throttled()}, upstream)
+
+	if got := upstream.probes.Load(); got < 3 {
+		t.Errorf("probed %d times, want it to keep asking until the upstream answered", got)
+	}
+
+	_, retried, _ := queue.snapshot()
+	runAfter, ok := retried["j1"]
+	if !ok {
+		t.Fatal("the job was not rescheduled")
+	}
+
+	// Scheduled soon, not after the long throttle backoff: the upstream has
+	// already said it is ready, so there is nothing left to wait for.
+	if wait := runAfter.Sub(before); wait > 2*time.Second {
+		t.Errorf("next attempt in %v; once the upstream is ready it should be retried promptly", wait)
+	}
+}
+
+func TestWorkerFallsBackToBackoffWhenTheUpstreamStaysDown(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	// readyFrom beyond what the budget allows: it never comes back.
+	upstream := &wakingUpstream{readyFrom: 1 << 30}
+	before := time.Now()
+
+	runWith(t, queue, stubAnalyzer{err: throttled()}, upstream)
+
+	_, retried, _ := queue.snapshot()
+	runAfter, ok := retried["j1"]
+	if !ok {
+		t.Fatal("the job was not rescheduled")
+	}
+	// Still scheduled, and this time with the long delay: giving up on the probe
+	// must not turn into giving up on the job.
+	if wait := runAfter.Sub(before); wait < time.Second {
+		t.Errorf("next attempt in %v; an upstream that never answered deserves the full backoff", wait)
+	}
+}
+
+func TestWorkerDoesNotProbeForAnOrdinaryFailure(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	upstream := &wakingUpstream{readyFrom: 1}
+
+	runWith(t, queue, stubAnalyzer{err: errors.New("connection reset")}, upstream)
+
+	// A reset connection says nothing about the upstream being asleep, and a
+	// probe on every ordinary failure is just more traffic at a bad moment.
+	if got := upstream.probes.Load(); got != 0 {
+		t.Errorf("probed %d times for a non-throttled failure, want none", got)
+	}
+}
+
+// TestWorkerStillRecordsTheOutcomeAfterALongWait guards the interaction between
+// the two. The bookkeeping context is deliberately short, and waiting for a
+// sleeping upstream is deliberately long; if the first is opened before the
+// second runs, it expires while waiting and the reschedule fails silently. The
+// job then sits in running until the stale sweep reclaims it minutes later —
+// which is the exact stall the separate bookkeeping context exists to prevent.
+func TestWorkerStillRecordsTheOutcomeAfterALongWait(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	upstream := &wakingUpstream{readyFrom: 1 << 30}
+
+	w := worker.New(
+		queue,
+		stubAnalyzer{err: throttled()},
+		upstream,
+		observability.NewMetrics(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		worker.Config{
+			Concurrency:  1,
+			PollInterval: time.Millisecond,
+			JobTimeout:   time.Second,
+			BaseBackoff:  10 * time.Millisecond,
+			MaxBackoff:   time.Minute,
+			// The wait outlasts the budget for writing the result down.
+			WakeBudget:         300 * time.Millisecond,
+			WakeProbeInterval:  10 * time.Millisecond,
+			BookkeepingTimeout: 20 * time.Millisecond,
+			DepthInterval:      time.Hour,
+			PurgeInterval:      time.Hour,
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	<-queue.drained
+	time.Sleep(600 * time.Millisecond)
+	cancel()
+	<-done
+
+	if _, retried, _ := queue.snapshot(); len(retried) == 0 {
+		t.Error("the job was never rescheduled: the outcome was written through an expired context")
 	}
 }

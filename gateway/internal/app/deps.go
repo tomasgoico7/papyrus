@@ -28,6 +28,10 @@ const (
 	versionTTL = 5 * time.Minute
 	// A cache lookup that cannot beat the upstream is not worth waiting for.
 	redisTimeout = 250 * time.Millisecond
+	// Generous: a readiness probe to a service that is starting up is expected
+	// to be slow, and a short timeout would report "not ready" for the whole
+	// wake rather than noticing the moment it finishes.
+	readinessTimeout = 30 * time.Second
 )
 
 // buildAnalyzer returns the analyzer the handler will use: the bare client when
@@ -188,4 +192,9 @@ func RateLimiter(
 
 	logger.Info("rate limiting is shared across replicas", slog.Int("rpm", cfg.RateLimitRPM))
 	return ratelimit.NewFallback(shared, local, metrics, logger)
+}
+
+// Readiness probes the AI service, for the worker to tell "asleep" from "broken".
+func Readiness(cfg *config.Config, upstream *http.Client) *services.HealthClient {
+	return services.NewHealthClient(cfg.AIServiceURL, upstream, readinessTimeout)
 }

@@ -132,6 +132,7 @@ func startWorker(
 	embedded := worker.New(
 		store,
 		analyzer,
+		app.Readiness(cfg, app.UpstreamClient(cfg.RequestTimeout)),
 		metrics,
 		logger.With(slog.String("component", "worker")),
 		worker.Config{

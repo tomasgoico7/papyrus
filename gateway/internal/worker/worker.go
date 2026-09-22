@@ -34,6 +34,12 @@ type Queue interface {
 	PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error)
 }
 
+// Readiness reports whether the upstream can take work. Optional: without one
+// the worker simply backs off, which is what it did before.
+type Readiness interface {
+	Ready(ctx context.Context) error
+}
+
 // Config tunes the loop. Every field has a working default.
 type Config struct {
 	// Concurrency is how many jobs run at once in this process.
@@ -52,6 +58,14 @@ type Config struct {
 	// capacity reasons. It is deliberately much larger: being throttled means
 	// the far side needs time, and asking again sooner is what caused it.
 	ThrottleBackoff time.Duration
+	// WakeBudget is how long to wait for a throttled upstream to report itself
+	// ready before giving up and falling back to a plain backoff.
+	WakeBudget time.Duration
+	// WakeProbeInterval is the gap between readiness probes.
+	WakeProbeInterval time.Duration
+	// ReadyBackoff is the short delay used once the upstream has said it is
+	// ready: there is nothing left to wait for.
+	ReadyBackoff time.Duration
 	// BookkeepingTimeout bounds writing an outcome back to the queue. It is
 	// deliberately separate from JobTimeout: recording that a job timed out
 	// must not itself be subject to the deadline that just expired.
@@ -87,6 +101,15 @@ func (c Config) withDefaults() Config {
 	if c.MaxBackoff <= 0 {
 		c.MaxBackoff = 5 * time.Minute
 	}
+	if c.WakeBudget <= 0 {
+		c.WakeBudget = 60 * time.Second
+	}
+	if c.WakeProbeInterval <= 0 {
+		c.WakeProbeInterval = 5 * time.Second
+	}
+	if c.ReadyBackoff <= 0 {
+		c.ReadyBackoff = 2 * time.Second
+	}
 	if c.ThrottleBackoff <= 0 {
 		// Three attempts then span roughly 90 to 135 seconds, which outlasts a
 		// platform that parks an idle service and takes tens of seconds to bring
@@ -112,26 +135,29 @@ func (c Config) withDefaults() Config {
 }
 
 type Worker struct {
-	queue    Queue
-	analyzer services.Analyzer
-	metrics  *observability.Metrics
-	logger   *slog.Logger
-	cfg      Config
+	queue     Queue
+	analyzer  services.Analyzer
+	readiness Readiness
+	metrics   *observability.Metrics
+	logger    *slog.Logger
+	cfg       Config
 }
 
 func New(
 	queue Queue,
 	analyzer services.Analyzer,
+	readiness Readiness,
 	metrics *observability.Metrics,
 	logger *slog.Logger,
 	cfg Config,
 ) *Worker {
 	return &Worker{
-		queue:    queue,
-		analyzer: analyzer,
-		metrics:  metrics,
-		logger:   logger,
-		cfg:      cfg.withDefaults(),
+		queue:     queue,
+		analyzer:  analyzer,
+		readiness: readiness,
+		metrics:   metrics,
+		logger:    logger,
+		cfg:       cfg.withDefaults(),
 	}
 }
 
@@ -221,6 +247,18 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 	elapsed := time.Since(started)
 	cancelRun()
 
+	// A throttled upstream is usually one that is asleep rather than busy, and
+	// retrying blindly bounces off the proxy in front of it without ever waking
+	// it. A readiness probe is a request that does get through, so it is both
+	// the question and the thing that starts the answer.
+	//
+	// This runs before the bookkeeping context is opened, not after: the wait
+	// lasts up to a minute and that context is measured in seconds.
+	ready := false
+	if err != nil && upstreamThrottled(err) {
+		ready = w.waitForUpstream(ctx, logger)
+	}
+
 	// Recording the outcome gets a context of its own, and this is not a detail.
 	// When the failure *is* the deadline, the work context is already dead, and
 	// writing the result through it fails too — leaving the job stuck as running
@@ -233,7 +271,7 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 	defer cancelBook()
 
 	if err != nil {
-		w.handleFailure(bookCtx, job, err, elapsed, logger)
+		w.handleFailure(bookCtx, job, err, elapsed, ready, logger)
 		return
 	}
 
@@ -266,6 +304,7 @@ func (w *Worker) handleFailure(
 	job *jobs.Job,
 	cause error,
 	elapsed time.Duration,
+	upstreamReady bool,
 	logger *slog.Logger,
 ) {
 	code, message := describe(cause)
@@ -297,6 +336,12 @@ func (w *Worker) handleFailure(
 	}
 
 	delay := backoff(job.Attempts, base, w.cfg.MaxBackoff)
+	if upstreamReady {
+		// It has since said it is ready. Waiting out a backoff sized for an
+		// upstream that needs time would only delay an attempt that is now
+		// expected to work.
+		delay = w.cfg.ReadyBackoff
+	}
 	if err := w.queue.Retry(ctx, job.ID, time.Now().Add(delay), code, message); err != nil {
 		logger.Warn("rescheduling the job failed", slog.Any("error", err))
 		w.metrics.RecordJob(observability.JobLost, elapsed)
@@ -389,6 +434,32 @@ func retriable(err error) bool {
 	// transient. Retrying something permanent costs a few attempts; refusing to
 	// retry something transient loses the analysis.
 	return true
+}
+
+// waitForUpstream polls readiness until the upstream answers or the budget runs
+// out, and reports whether it came back. The wait happens on a worker slot on
+// purpose: the job is already claimed, and holding it is cheaper than releasing
+// it only to reclaim it moments later.
+func (w *Worker) waitForUpstream(ctx context.Context, logger *slog.Logger) bool {
+	if w.readiness == nil {
+		return false
+	}
+
+	started := time.Now()
+	deadline := started.Add(w.cfg.WakeBudget)
+
+	for time.Now().Before(deadline) {
+		if err := w.readiness.Ready(ctx); err == nil {
+			logger.Info("upstream came back", slog.Duration("waited", time.Since(started)))
+			return true
+		}
+		if !sleep(ctx, w.cfg.WakeProbeInterval) {
+			return false
+		}
+	}
+
+	logger.Warn("upstream did not come back", slog.Duration("waited", time.Since(started)))
+	return false
 }
 
 func upstreamThrottled(err error) bool {

@@ -63,6 +63,7 @@ func run() error {
 	drain := worker.New(
 		jobs.NewStore(pool),
 		app.Analyzer(cfg, upstream, metrics, logger),
+		app.Readiness(cfg, upstream),
 		metrics,
 		logger,
 		worker.Config{
