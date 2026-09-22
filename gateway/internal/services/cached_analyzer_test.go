@@ -391,3 +391,80 @@ func TestCachedAnalyzerPropagatesAnUpstreamFailure(t *testing.T) {
 		t.Errorf("upstream calls = %d, want the failure not to have been cached", got)
 	}
 }
+
+func TestLookupReportsAKnownResultWithoutCallingUpstream(t *testing.T) {
+	f := newCachedFixture(t, cache.NewLRU(8))
+	ctx := context.Background()
+
+	if _, err := f.cached.Analyze(ctx, request("%PDF cv", "A backend role.", "Backend")); err != nil {
+		t.Fatalf("seeding the cache: %v", err)
+	}
+	before := f.analyzer.calls.Load()
+
+	found, err := f.cached.Lookup(ctx, request("%PDF cv", "A backend role.", "Backend"))
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+
+	if found.Analysis == nil {
+		t.Fatal("expected the cached analysis")
+	}
+	if found.Key == "" {
+		t.Error("a hit should still report the key the job would use")
+	}
+	if got := f.analyzer.calls.Load(); got != before {
+		t.Errorf("upstream calls went from %d to %d; a lookup must never do the work", before, got)
+	}
+}
+
+func TestLookupReportsAMissWithTheKeyAndTheUpload(t *testing.T) {
+	f := newCachedFixture(t, cache.NewLRU(8))
+
+	found, err := f.cached.Lookup(context.Background(), request("%PDF-1.4 real bytes", "A backend role.", "Backend"))
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+
+	if found.Analysis != nil {
+		t.Error("nothing was cached, so nothing should come back")
+	}
+	if found.Key == "" {
+		t.Error("a miss still needs a key, so the job can be deduplicated by it")
+	}
+	// The caller enqueues these bytes; reading them here must not consume them.
+	if string(found.CV) != "%PDF-1.4 real bytes" {
+		t.Errorf("cv = %q, want the upload handed back", found.CV)
+	}
+	if f.analyzer.calls.Load() != 0 {
+		t.Error("a lookup must never call the upstream")
+	}
+}
+
+func TestLookupWithholdsTheKeyWhenTheVersionIsUnavailable(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	client := down.Client()
+	down.Close()
+
+	cached := services.NewCachedAnalyzer(
+		&countingAnalyzer{},
+		cache.NewLRU(8),
+		services.NewVersionClient(down.URL, "", client, time.Minute),
+		observability.NewMetrics(),
+		time.Hour,
+		5*time.Second,
+	)
+
+	found, err := cached.Lookup(context.Background(), request("%PDF cv", "A backend role.", "Backend"))
+	if err != nil {
+		t.Fatalf("an unreachable version endpoint must not fail the lookup: %v", err)
+	}
+
+	// No fingerprint means no key worth trusting; the caller gives the job one
+	// that cannot collide with anything.
+	if found.Key != "" {
+		t.Errorf("key = %q, want none without a prompt fingerprint", found.Key)
+	}
+	if len(found.CV) == 0 {
+		t.Error("the upload should still come back, so the job can run uncached")
+	}
+}

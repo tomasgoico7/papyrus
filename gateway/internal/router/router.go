@@ -23,6 +23,7 @@ func New(
 	logger *slog.Logger,
 	metrics *observability.Metrics,
 	analyzer services.Analyzer,
+	queue handlers.JobQueue,
 ) *gin.Engine {
 	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
@@ -52,6 +53,16 @@ func New(
 	authed.POST("/analyze", analyzeHandler.Handle)
 	authed.POST("/tailor/questions", tailorHandler.Questions)
 	authed.POST("/tailor/generate", tailorHandler.Generate)
+
+	// The asynchronous path appears only where there is a queue behind it. The
+	// synchronous endpoint stays either way, so a deployment without a database
+	// keeps working exactly as before.
+	if lookup, ok := analyzer.(handlers.AnalysisLookup); ok && queue != nil {
+		analyses := handlers.NewAnalysesHandler(lookup, queue, cfg.MaxUploadBytes, cfg.RequestTimeout)
+		authed.POST("/analyses", analyses.Submit)
+		authed.GET("/analyses/:id", analyses.Status)
+		logger.Info("asynchronous analyses enabled")
+	}
 
 	return engine
 }

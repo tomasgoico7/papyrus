@@ -19,3 +19,14 @@ type errorEnvelope struct {
 func RespondError(c *gin.Context, status int, code, message string) {
 	c.AbortWithStatusJSON(status, errorEnvelope{Error: apiError{Code: code, Message: message}})
 }
+
+// ContextUserID is where the auth middleware leaves the authenticated subject.
+// It lives here rather than in the middleware package so a handler can read it
+// without depending on the middleware that set it.
+const ContextUserID = "userID"
+
+// UserID returns the authenticated subject, or the empty string on a route that
+// is not behind the auth middleware.
+func UserID(c *gin.Context) string {
+	return c.GetString(ContextUserID)
+}

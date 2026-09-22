@@ -105,7 +105,7 @@ The split is honestly a bit much for a CV tool — you could collapse this into 
 | Layer       | What's in it                                                                 |
 |-------------|------------------------------------------------------------------------------|
 | Frontend    | Next.js 14 (App Router), TypeScript (strict), Tailwind CSS, `@supabase/ssr`, `next-themes`, cookie-based i18n, `zod` for env validation |
-| Gateway     | Go 1.22, Gin, `golang-jwt/v5` with hand-rolled JWKS verification, `golang.org/x/time/rate` |
+| Gateway     | Go 1.26, Gin, `golang-jwt/v5` with hand-rolled JWKS verification, `golang.org/x/time/rate` |
 | AI service  | Python 3.11, FastAPI, LangChain (`langchain-core` + `langchain-google-genai`), `pypdf`, `pydantic-settings` |
 | Database    | Supabase (PostgreSQL) with Row Level Security + private Storage               |
 | LLM         | Google Gemini (`gemini-2.5-flash`, free tier)                                |
@@ -166,7 +166,7 @@ papyrus/
 - A free [Supabase](https://supabase.com) project
 - A free [Google AI Studio](https://aistudio.google.com/app/apikey) key
 
-If you want to run a service outside Docker you'll also need Node 20+, Go 1.22+, or Python 3.11+ depending on which one.
+If you want to run a service outside Docker you'll also need Node 20+, Go 1.26+, or Python 3.11+ depending on which one.
 
 ### 1. Supabase (this is the only fiddly part)
 
@@ -299,6 +299,36 @@ Errors share one envelope across all three services, so the frontend only has to
 ```
 
 The gateway passes a 4xx from the AI service straight through (e.g. `422 unreadable_cv` for a scanned PDF with no text layer) and collapses anything else — timeouts, 5xx, a dead upstream — into a `502`/`504`.
+
+### `POST /analyses` — gateway *(asynchronous)*
+
+The same body as `/analyze`, but it does not wait for the model. It exists only
+where the gateway has a `DATABASE_URL`; without one the route is not registered.
+
+- **`200`** — the result was already cached, in the same shape as `/analyze`.
+  There is no job to create for work that is already done.
+- **`202`** — queued. `Location` points at where to check.
+
+```json
+{ "jobId": "9f2c1ab3-…", "status": "queued" }
+```
+
+Resubmitting the same analysis while the first is still running returns **the
+same `jobId`**: the dedup key is the cache key, so the queue and the cache agree
+on what counts as the same analysis.
+
+### `GET /analyses/{id}` — gateway
+
+Answers **`200`** in every case except a job that does not exist or belongs to
+someone else, which are indistinguishable `404`s. An analysis that failed is not
+a failed lookup, so the reason travels in the body:
+
+```json
+{ "jobId": "9f2c1ab3-…", "status": "running", "attempt": 1 }
+{ "jobId": "9f2c1ab3-…", "status": "done",    "attempt": 1, "result": { … } }
+{ "jobId": "9f2c1ab3-…", "status": "failed",  "attempt": 3,
+  "error": { "code": "unreadable_cv", "message": "…" } }
+```
 
 ### `GET /health` — gateway & AI service
 

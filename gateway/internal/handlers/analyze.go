@@ -2,25 +2,18 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"mime/multipart"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/papyrus/gateway/internal/httpx"
 	"github.com/papyrus/gateway/internal/services"
 	"github.com/papyrus/gateway/internal/transport"
 )
 
-const (
-	minJobOfferLength = 40
-	multipartOverhead = 1 << 20 // headroom for job-posting text and multipart framing
-)
-
+// AnalyzeHandler serves the synchronous analyze endpoint: the caller waits for
+// the model. It is kept while the asynchronous path proves itself, and is the
+// one to remove once clients have moved over.
 type AnalyzeHandler struct {
 	analyzer       services.Analyzer
 	maxUploadBytes int64
@@ -36,54 +29,20 @@ func NewAnalyzeHandler(analyzer services.Analyzer, maxUploadBytes int64, request
 }
 
 func (h *AnalyzeHandler) Handle(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.maxUploadBytes+multipartOverhead)
-
-	if err := c.Request.ParseMultipartForm(h.maxUploadBytes); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			httpx.RespondError(c, http.StatusRequestEntityTooLarge, "payload_too_large", h.sizeLimitMessage())
-			return
-		}
-		httpx.RespondError(c, http.StatusBadRequest, "invalid_request", "The upload could not be parsed.")
+	upload, ok := parseAnalysisUpload(c, h.maxUploadBytes)
+	if !ok {
 		return
 	}
-
-	jobOffer := strings.TrimSpace(c.PostForm("jobOffer"))
-	if len(jobOffer) < minJobOfferLength {
-		httpx.RespondError(c, http.StatusBadRequest, "invalid_job_offer", "The job posting is too short to analyze.")
-		return
-	}
-	jobTitle := strings.TrimSpace(c.PostForm("jobTitle"))
-
-	header, err := c.FormFile("cv")
-	if err != nil {
-		httpx.RespondError(c, http.StatusBadRequest, "cv_required", "A CV file is required.")
-		return
-	}
-	if header.Size > h.maxUploadBytes {
-		httpx.RespondError(c, http.StatusRequestEntityTooLarge, "payload_too_large", h.sizeLimitMessage())
-		return
-	}
-	if !isPDF(header) {
-		httpx.RespondError(c, http.StatusUnsupportedMediaType, "unsupported_media_type", "Only PDF files are supported.")
-		return
-	}
-
-	file, err := header.Open()
-	if err != nil {
-		httpx.RespondError(c, http.StatusInternalServerError, "upload_error", "The CV file could not be read.")
-		return
-	}
-	defer file.Close()
+	defer upload.File.Close()
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.requestTimeout)
 	defer cancel()
 
 	analysis, err := h.analyzer.Analyze(ctx, services.AnalyzeRequest{
-		CV:       file,
-		Filename: header.Filename,
-		JobOffer: jobOffer,
-		JobTitle: jobTitle,
+		CV:       upload.File,
+		Filename: upload.Filename,
+		JobOffer: upload.JobOffer,
+		JobTitle: upload.JobTitle,
 	})
 	if err != nil {
 		respondUpstream(c, err, "analyze")
@@ -92,17 +51,6 @@ func (h *AnalyzeHandler) Handle(c *gin.Context) {
 
 	c.JSON(http.StatusOK, transport.AnalysisResponse{
 		Analysis:   *analysis,
-		CVFilename: header.Filename,
+		CVFilename: upload.Filename,
 	})
-}
-
-func (h *AnalyzeHandler) sizeLimitMessage() string {
-	return fmt.Sprintf("CV exceeds the %d MB limit.", h.maxUploadBytes/(1024*1024))
-}
-
-func isPDF(header *multipart.FileHeader) bool {
-	if strings.EqualFold(header.Header.Get("Content-Type"), "application/pdf") {
-		return true
-	}
-	return strings.HasSuffix(strings.ToLower(header.Filename), ".pdf")
 }

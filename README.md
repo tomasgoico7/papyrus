@@ -105,7 +105,7 @@ El split, siendo honesto, es un poco demasiado para una herramienta de CVs — p
 | Capa        | Qué tiene                                                                    |
 |-------------|------------------------------------------------------------------------------|
 | Frontend    | Next.js 14 (App Router), TypeScript (strict), Tailwind CSS, `@supabase/ssr`, `next-themes`, i18n por cookie, `zod` para validar el entorno |
-| Gateway     | Go 1.22, Gin, `golang-jwt/v5` con verificación JWKS hecha a mano, `golang.org/x/time/rate` |
+| Gateway     | Go 1.26, Gin, `golang-jwt/v5` con verificación JWKS hecha a mano, `golang.org/x/time/rate` |
 | Servicio IA | Python 3.11, FastAPI, LangChain (`langchain-core` + `langchain-google-genai`), `pypdf`, `pydantic-settings` |
 | Base        | Supabase (PostgreSQL) con Row Level Security + Storage privado               |
 | LLM         | Google Gemini (`gemini-2.5-flash`, free tier)                               |
@@ -166,7 +166,7 @@ papyrus/
 - Un proyecto gratis de [Supabase](https://supabase.com)
 - Una key gratis de [Google AI Studio](https://aistudio.google.com/app/apikey)
 
-Si querés correr un servicio fuera de Docker vas a necesitar además Node 20+, Go 1.22+ o Python 3.11+, según cuál.
+Si querés correr un servicio fuera de Docker vas a necesitar además Node 20+, Go 1.26+ o Python 3.11+, según cuál.
 
 ### 1. Supabase (esta es la única parte tediosa)
 
@@ -299,6 +299,36 @@ Los errores comparten un único envelope en los tres servicios, así el frontend
 ```
 
 El gateway pasa un 4xx del servicio de IA tal cual (por ejemplo `422 unreadable_cv` para un PDF escaneado sin capa de texto) y colapsa cualquier otra cosa — timeouts, 5xx, un upstream caído — en un `502`/`504`.
+
+### `POST /analyses` — gateway *(asíncrono)*
+
+Mismo cuerpo que `/analyze`, pero no espera al modelo. Existe sólo cuando el
+gateway tiene `DATABASE_URL`; sin eso, la ruta no está registrada.
+
+- **`200`** — el resultado ya estaba en caché, con la misma forma que `/analyze`.
+  No se crea ningún job para trabajo que ya está hecho.
+- **`202`** — encolado. `Location` apunta a dónde consultarlo.
+
+```json
+{ "jobId": "9f2c1ab3-…", "status": "queued" }
+```
+
+Reenviar el mismo análisis mientras el primero corre devuelve **el mismo `jobId`**:
+la clave de deduplicación es la misma clave de caché, así que la cola y el caché
+coinciden en qué es "el mismo análisis".
+
+### `GET /analyses/{id}` — gateway
+
+Devuelve **`200`** en todos los casos salvo que el job no exista o sea de otro
+usuario, que dan `404` indistinguibles. Que el análisis haya fallado no es un
+fallo de la consulta, así que el motivo viaja en el cuerpo:
+
+```json
+{ "jobId": "9f2c1ab3-…", "status": "running", "attempt": 1 }
+{ "jobId": "9f2c1ab3-…", "status": "done",    "attempt": 1, "result": { … } }
+{ "jobId": "9f2c1ab3-…", "status": "failed",  "attempt": 3,
+  "error": { "code": "unreadable_cv", "message": "…" } }
+```
 
 ### `GET /health` — gateway y servicio IA
 

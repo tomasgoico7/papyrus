@@ -14,6 +14,7 @@ import (
 
 	"github.com/papyrus/gateway/internal/app"
 	"github.com/papyrus/gateway/internal/config"
+	"github.com/papyrus/gateway/internal/handlers"
 	"github.com/papyrus/gateway/internal/jobs"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/router"
@@ -50,18 +51,33 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var workers sync.WaitGroup
-	if cfg.RunWorker {
-		shutdown, err := startWorker(ctx, cfg, logger, metrics, analyzer, &workers)
+	// The queue is optional: without a database the gateway serves only the
+	// synchronous path, exactly as it did before there was one.
+	var (
+		store *jobs.Store
+		queue handlers.JobQueue
+	)
+	if cfg.QueueEnabled() {
+		pool, err := app.Pool(ctx, cfg)
 		if err != nil {
 			return err
 		}
-		defer shutdown()
+		defer pool.Close()
+
+		store = jobs.NewStore(pool)
+		queue = store
+	} else if cfg.RunWorker {
+		return errors.New("RUN_WORKER is set but DATABASE_URL is empty")
+	}
+
+	var workers sync.WaitGroup
+	if cfg.RunWorker {
+		startWorker(ctx, store, logger, metrics, analyzer, cfg, &workers)
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           router.New(cfg, logger, metrics, analyzer),
+		Handler:           router.New(cfg, logger, metrics, analyzer, queue),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
@@ -106,23 +122,15 @@ func run() error {
 // does not.
 func startWorker(
 	ctx context.Context,
-	cfg *config.Config,
+	store *jobs.Store,
 	logger *slog.Logger,
 	metrics *observability.Metrics,
 	analyzer services.Analyzer,
+	cfg *config.Config,
 	wg *sync.WaitGroup,
-) (func(), error) {
-	if !cfg.QueueEnabled() {
-		return nil, errors.New("RUN_WORKER is set but DATABASE_URL is empty")
-	}
-
-	pool, err := app.Pool(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
+) {
 	embedded := worker.New(
-		jobs.NewStore(pool),
+		store,
 		analyzer,
 		metrics,
 		logger.With(slog.String("component", "worker")),
@@ -137,6 +145,4 @@ func startWorker(
 		defer wg.Done()
 		embedded.Run(ctx)
 	}()
-
-	return pool.Close, nil
 }

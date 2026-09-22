@@ -10,9 +10,10 @@ import (
 	"github.com/papyrus/gateway/internal/httpx"
 )
 
-// ContextUserID is the gin context key under which the authenticated user's id
-// is stored for downstream handlers and the rate limiter.
-const ContextUserID = "userID"
+// ContextUserID is where the authenticated user's id is stored for downstream
+// handlers and the rate limiter. Defined in httpx so a handler can read it
+// without importing this package.
+const ContextUserID = httpx.ContextUserID
 
 // Supabase signs access tokens with asymmetric keys. Restricting the accepted
 // algorithms to those avoids algorithm-confusion attacks; the verification key

@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -39,7 +38,7 @@ func (h *TailorHandler) Questions(c *gin.Context) {
 	if err := c.Request.ParseMultipartForm(h.maxUploadBytes); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			httpx.RespondError(c, http.StatusRequestEntityTooLarge, "payload_too_large", h.sizeLimitMessage())
+			httpx.RespondError(c, http.StatusRequestEntityTooLarge, "payload_too_large", sizeLimitMessage(h.maxUploadBytes))
 			return
 		}
 		httpx.RespondError(c, http.StatusBadRequest, "invalid_request", "The upload could not be parsed.")
@@ -58,7 +57,7 @@ func (h *TailorHandler) Questions(c *gin.Context) {
 		return
 	}
 	if header.Size > h.maxUploadBytes {
-		httpx.RespondError(c, http.StatusRequestEntityTooLarge, "payload_too_large", h.sizeLimitMessage())
+		httpx.RespondError(c, http.StatusRequestEntityTooLarge, "payload_too_large", sizeLimitMessage(h.maxUploadBytes))
 		return
 	}
 	if !isPDF(header) {
@@ -119,8 +118,4 @@ func (h *TailorHandler) Generate(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, "application/json; charset=utf-8", data)
-}
-
-func (h *TailorHandler) sizeLimitMessage() string {
-	return fmt.Sprintf("CV exceeds the %d MB limit.", h.maxUploadBytes/(1024*1024))
 }

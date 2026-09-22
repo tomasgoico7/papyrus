@@ -195,3 +195,47 @@ func analysisKey(cv []byte, jobOffer, jobTitle string, version Version) string {
 func normalizeText(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
+
+// Lookup is the read half of Analyze, for the asynchronous path. The handler
+// needs two things before it can decide what to answer: whether the result is
+// already known, and the key a job for it should be deduplicated by.
+type Lookup struct {
+	// Key is empty when no trustworthy key could be built, which means the
+	// request must not be deduplicated against anything.
+	Key string
+	// CV is the upload, read once here so the caller does not have to read it
+	// again to enqueue it.
+	CV []byte
+	// Analysis is nil unless the answer was already cached.
+	Analysis *transport.Analysis
+}
+
+// Lookup reads the upload and reports what the cache already knows about it. It
+// never calls the upstream: deciding to do the work is the caller's business.
+func (a *CachedAnalyzer) Lookup(ctx context.Context, req AnalyzeRequest) (Lookup, error) {
+	logger := observability.LoggerFrom(ctx)
+
+	cv, err := io.ReadAll(req.CV)
+	if err != nil {
+		return Lookup{}, fmt.Errorf("reading cv: %w", err)
+	}
+
+	version, err := a.versions.Current(ctx)
+	if err != nil {
+		// No fingerprint means no key worth trusting. The work still has to
+		// happen; it just cannot be shared with anything else.
+		a.metrics.RecordCacheLookup(observability.CacheBypass)
+		logger.Warn("analysis cache bypassed: version unavailable", slog.Any("error", err))
+		return Lookup{CV: cv}, nil
+	}
+
+	key := analysisKey(cv, req.JobOffer, req.JobTitle, version)
+
+	if analysis, ok := a.load(ctx, key, logger); ok {
+		a.metrics.RecordCacheLookup(observability.CacheHit)
+		return Lookup{Key: key, CV: cv, Analysis: analysis}, nil
+	}
+
+	a.metrics.RecordCacheLookup(observability.CacheMiss)
+	return Lookup{Key: key, CV: cv}, nil
+}
