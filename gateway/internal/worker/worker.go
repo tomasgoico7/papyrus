@@ -48,6 +48,10 @@ type Config struct {
 	// BaseBackoff and MaxBackoff bound the retry delay.
 	BaseBackoff time.Duration
 	MaxBackoff  time.Duration
+	// BookkeepingTimeout bounds writing an outcome back to the queue. It is
+	// deliberately separate from JobTimeout: recording that a job timed out
+	// must not itself be subject to the deadline that just expired.
+	BookkeepingTimeout time.Duration
 	// DepthInterval is how often the queue gauges are refreshed.
 	DepthInterval time.Duration
 	// PurgeInterval is how often finished jobs are swept away, and
@@ -78,6 +82,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxBackoff <= 0 {
 		c.MaxBackoff = 5 * time.Minute
+	}
+	if c.BookkeepingTimeout <= 0 {
+		c.BookkeepingTimeout = 15 * time.Second
 	}
 	if c.DepthInterval <= 0 {
 		c.DepthInterval = 15 * time.Second
@@ -192,8 +199,7 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 
 	// Detached from the shutdown signal on purpose: a job already claimed is
 	// finished or explicitly released, never silently dropped half-done.
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), w.cfg.JobTimeout)
-	defer cancel()
+	runCtx, cancelRun := context.WithTimeout(context.WithoutCancel(ctx), w.cfg.JobTimeout)
 	runCtx = observability.ContextWithLogger(runCtx, logger)
 
 	analysis, err := w.analyzer.Analyze(runCtx, services.AnalyzeRequest{
@@ -203,9 +209,21 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 		JobTitle: job.JobTitle,
 	})
 	elapsed := time.Since(started)
+	cancelRun()
+
+	// Recording the outcome gets a context of its own, and this is not a detail.
+	// When the failure *is* the deadline, the work context is already dead, and
+	// writing the result through it fails too — leaving the job stuck as running
+	// until the stale sweep reclaims it minutes later. Every timeout became a
+	// five-minute stall that way.
+	bookCtx, cancelBook := context.WithTimeout(
+		observability.ContextWithLogger(context.WithoutCancel(ctx), logger),
+		w.cfg.BookkeepingTimeout,
+	)
+	defer cancelBook()
 
 	if err != nil {
-		w.handleFailure(runCtx, job, err, elapsed, logger)
+		w.handleFailure(bookCtx, job, err, elapsed, logger)
 		return
 	}
 
@@ -217,11 +235,11 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 		// The result cannot be stored, and running it again will not change
 		// that. Ending the job is more honest than retrying forever.
 		logger.Error("encoding the analysis failed", slog.Any("error", err))
-		w.finish(runCtx, job, "internal_error", "The analysis could not be stored.", elapsed, logger)
+		w.finish(bookCtx, job, "internal_error", "The analysis could not be stored.", elapsed, logger)
 		return
 	}
 
-	if err := w.queue.Complete(runCtx, job.ID, encoded); err != nil {
+	if err := w.queue.Complete(bookCtx, job.ID, encoded); err != nil {
 		// Most likely the job was reclaimed and somebody else already finished
 		// it. The work is wasted, not wrong.
 		logger.Warn("completing the job failed", slog.Any("error", err))

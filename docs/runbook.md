@@ -53,6 +53,11 @@ workers are keeping up with nothing — there are too few of them. Raise
 Climbing while `retried` climbs too means the upstream is unhealthy. The workers
 are fine; they are being told no. Look at the AI service.
 
+A job stuck in `running` for longer than `REQUEST_TIMEOUT_SECONDS` means the
+worker holding it died — a deploy, usually. It is reclaimed automatically once
+the claim goes stale, five minutes by default, and the attempt counter goes up.
+Nothing needs doing; the user just waits longer than they should.
+
 Depth flat at zero with jobs visibly not running means no worker is consuming.
 Check that `RUN_WORKER=true` and `DATABASE_URL` are both set — the startup log
 says `worker starting` when they are.

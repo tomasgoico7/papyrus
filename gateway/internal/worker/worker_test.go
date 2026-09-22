@@ -58,7 +58,13 @@ func (q *fakeQueue) Claim(context.Context, time.Duration) (*jobs.Job, error) {
 	return job, nil
 }
 
-func (q *fakeQueue) Complete(_ context.Context, id string, result json.RawMessage) error {
+// The writes below all check the context first, because a real store does. A
+// fake that ignores it hides the whole class of bug where an outcome is written
+// through a context that has already expired.
+func (q *fakeQueue) Complete(ctx context.Context, id string, result json.RawMessage) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.completeErr != nil {
@@ -68,14 +74,20 @@ func (q *fakeQueue) Complete(_ context.Context, id string, result json.RawMessag
 	return nil
 }
 
-func (q *fakeQueue) Retry(_ context.Context, id string, runAfter time.Time, _, _ string) error {
+func (q *fakeQueue) Retry(ctx context.Context, id string, runAfter time.Time, _, _ string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.retried[id] = runAfter
 	return nil
 }
 
-func (q *fakeQueue) Fail(_ context.Context, id, code, _ string) error {
+func (q *fakeQueue) Fail(ctx context.Context, id, code, _ string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.failed[id] = code
@@ -360,5 +372,65 @@ func TestWorkerSweepsFinishedJobsOnItsOwn(t *testing.T) {
 	}
 	if dead <= done {
 		t.Errorf("dead letters kept for %v, successes for %v; the dead ones should outlive them", dead, done)
+	}
+}
+
+// hangingAnalyzer never answers on its own; it waits for the deadline.
+type hangingAnalyzer struct{}
+
+func (hangingAnalyzer) Analyze(ctx context.Context, _ services.AnalyzeRequest) (*transport.Analysis, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestWorkerRecordsAJobThatRanOutOfTime is a regression test for a bug that only
+// showed up in production: the outcome was written through the same context that
+// bounded the work, so when the failure *was* the deadline, recording it failed
+// too. The job stayed claimed and running, invisible, until the stale sweep
+// reclaimed it minutes later — turning every timeout into a five-minute stall.
+func TestWorkerRecordsAJobThatRanOutOfTime(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+
+	w := worker.New(
+		queue,
+		hangingAnalyzer{},
+		observability.NewMetrics(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		worker.Config{
+			Concurrency:        1,
+			PollInterval:       time.Millisecond,
+			JobTimeout:         30 * time.Millisecond,
+			BookkeepingTimeout: 2 * time.Second,
+			BaseBackoff:        10 * time.Millisecond,
+			MaxBackoff:         50 * time.Millisecond,
+			DepthInterval:      time.Hour,
+			PurgeInterval:      time.Hour,
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-queue.drained:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("the worker never drained the queue")
+	}
+	// Give the outcome a moment to land before stopping.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-done
+
+	_, retried, failed := queue.snapshot()
+	if len(retried) == 0 && len(failed) == 0 {
+		t.Fatal("the job timed out and nothing was recorded; it would sit claimed until the stale sweep")
+	}
+	if len(retried) != 1 {
+		t.Errorf("retried = %v, want the timed-out job rescheduled", retried)
 	}
 }
