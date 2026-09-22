@@ -376,6 +376,15 @@ func retriable(err error) bool {
 func describe(err error) (code, message string) {
 	var upstream *services.UpstreamError
 	if errors.As(err, &upstream) {
+		// Classified the same way the request path classifies it. A 429 that
+		// broke the error envelope still arrived as throttling, and recording it
+		// as a generic upstream fault would hide a capacity problem behind a
+		// code that says nothing.
+		if upstream.IsThrottled() {
+			return "upstream_rate_limited", fmt.Sprintf(
+				"upstream status %d: %s", upstream.StatusCode, upstream.Body,
+			)
+		}
 		if upstream.Code == "ai_service_error" {
 			// The client localises by code, so this message is only ever read
 			// while diagnosing — which is exactly when the status and what the

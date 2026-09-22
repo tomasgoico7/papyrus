@@ -290,6 +290,12 @@ func TestWorkerClassifiesUpstreamFailures(t *testing.T) {
 			wantRetry: true,
 		},
 		{
+			// Throttling that arrived without our envelope is still throttling.
+			name:      "throttling behind a proxy page is worth another attempt",
+			err:       &services.UpstreamError{StatusCode: http.StatusTooManyRequests, Code: "ai_service_error", Body: "Too Many Requests"},
+			wantRetry: true,
+		},
+		{
 			name:      "an upstream 5xx is worth another attempt",
 			err:       &services.UpstreamError{StatusCode: http.StatusBadGateway, Code: "ai_service_error", Message: "Boom."},
 			wantRetry: true,
@@ -432,5 +438,22 @@ func TestWorkerRecordsAJobThatRanOutOfTime(t *testing.T) {
 	}
 	if len(retried) != 1 {
 		t.Errorf("retried = %v, want the timed-out job rescheduled", retried)
+	}
+}
+
+func TestWorkerRecordsThrottlingAsThrottling(t *testing.T) {
+	// The same 429 reaches the request path and the worker by different routes.
+	// If only one of them calls it throttling, a capacity problem looks like two
+	// unrelated faults depending on which path saw it.
+	queue := newFakeQueue(job("j1", 3, 3))
+	run(t, queue, stubAnalyzer{err: &services.UpstreamError{
+		StatusCode: 429,
+		Code:       "ai_service_error",
+		Body:       "Too Many Requests",
+	}})
+
+	_, _, failed := queue.snapshot()
+	if got := failed["j1"]; got != "upstream_rate_limited" {
+		t.Errorf("recorded %q, want upstream_rate_limited", got)
 	}
 }

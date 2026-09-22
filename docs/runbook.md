@@ -103,11 +103,22 @@ are gone entirely, so this only reaches recent ones — which is the intent.
 
 Do **not** requeue `unreadable_cv`. It will fail again, identically.
 
-A cluster of `ai_service_error` shortly after a quiet period is usually the AI
-service waking up rather than being broken: on a free tier it sleeps after ~15
-minutes and takes 20-50s to come back. The retry schedule is sized to outlast
-that — roughly 35 to 70 seconds across three attempts — but a long enough sleep
-still wins. Requeue those; they succeed on the second pass.
+`upstream_rate_limited` with a body of `Too Many Requests` is the platform, not
+the model. A free instance that is asleep answers 429 while it wakes, and the
+worker'"'"'s own retries are enough concurrency to trigger it. The analysis is fine;
+the service was not there yet.
+
+The durable fix is not more retries — it is keeping the service awake. The
+scheduled `keep-warm` workflow does not manage it: GitHub throttles cron on free
+accounts hard, and in practice it runs every two to six hours rather than the
+ten minutes it asks for. Check its history before trusting it:
+
+```
+gh run list --workflow keep-warm
+```
+
+An external pinger (UptimeRobot, cron-job.org, both free) hitting `/health` every
+five minutes is what actually holds a free instance open.
 
 ---
 
