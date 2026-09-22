@@ -27,6 +27,15 @@ type Config struct {
 	RedisURL          string
 	CacheTTL          time.Duration
 	CacheLocalEntries int
+
+	// DatabaseURL is where the job queue lives. Empty means this process does
+	// not touch the queue at all.
+	DatabaseURL string
+	// RunWorker ships the worker inside the API process. Separate binaries are
+	// the real shape; on a free tier that has no room for a second service,
+	// this keeps the code split and the deployment joint.
+	RunWorker         bool
+	WorkerConcurrency int
 }
 
 func (c Config) IsProduction() bool {
@@ -68,6 +77,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	workerConcurrency, err := intWithDefault("WORKER_CONCURRENCY", 2)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:           stringWithDefault("PORT", "8080"),
 		Environment:    stringWithDefault("ENVIRONMENT", "development"),
@@ -83,6 +97,10 @@ func Load() (*Config, error) {
 		RedisURL:          strings.TrimSpace(os.Getenv("REDIS_URL")),
 		CacheTTL:          time.Duration(cacheTTLHours) * time.Hour,
 		CacheLocalEntries: cacheLocalEntries,
+
+		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		RunWorker:         boolWithDefault("RUN_WORKER", false),
+		WorkerConcurrency: workerConcurrency,
 	}, nil
 }
 
@@ -113,6 +131,17 @@ func intWithDefault(key string, fallback int) (int, error) {
 	return value, nil
 }
 
+func boolWithDefault(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
 func splitOrigins(raw string) []string {
 	parts := strings.Split(raw, ",")
 	origins := make([]string, 0, len(parts))
@@ -127,4 +156,9 @@ func splitOrigins(raw string) []string {
 // CacheEnabled reports whether analyses should be cached at all.
 func (c Config) CacheEnabled() bool {
 	return c.CacheTTL > 0
+}
+
+// QueueEnabled reports whether this process can reach the job queue.
+func (c Config) QueueEnabled() bool {
+	return c.DatabaseURL != ""
 }

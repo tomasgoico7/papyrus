@@ -5,9 +5,12 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/papyrus/gateway/internal/cache"
 	"github.com/papyrus/gateway/internal/config"
@@ -109,4 +112,34 @@ func UpstreamClient(requestTimeout time.Duration) *http.Client {
 		Transport: transport,
 		Timeout:   requestTimeout + 5*time.Second,
 	}
+}
+
+// Pool opens the connection pool for the job queue.
+//
+// The queue is polled, so the pool is kept small and the connections short
+// lived: a managed Postgres caps how many a project may hold, and a worker that
+// hoards them starves the rest of the system. Point DATABASE_URL at the
+// transaction pooler rather than the direct port for the same reason.
+func Pool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
+	options, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing database url: %w", err)
+	}
+	options.MaxConns = int32(max(4, cfg.WorkerConcurrency+2))
+	options.MinConns = 1
+	options.MaxConnIdleTime = time.Minute
+	options.MaxConnLifetime = 30 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, options)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to the database: %w", err)
+	}
+
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("pinging the database: %w", err)
+	}
+	return pool, nil
 }

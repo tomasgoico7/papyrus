@@ -14,14 +14,22 @@ import (
 	"github.com/papyrus/gateway/internal/services"
 )
 
-func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
+// New builds the HTTP engine. The metrics registry and the analyzer are passed
+// in rather than created here: the worker shares both when it runs in this
+// process, and two registries would mean half the numbers missing from
+// /metrics.
+func New(
+	cfg *config.Config,
+	logger *slog.Logger,
+	metrics *observability.Metrics,
+	analyzer services.Analyzer,
+) *gin.Engine {
 	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	engine := gin.New()
 	engine.MaxMultipartMemory = cfg.MaxUploadBytes
-	metrics := observability.NewMetrics()
 	engine.Use(
 		gin.Recovery(),
 		middleware.RequestID(logger),
@@ -30,7 +38,6 @@ func New(cfg *config.Config, logger *slog.Logger) *gin.Engine {
 	)
 
 	upstream := app.UpstreamClient(cfg.RequestTimeout)
-	analyzer := app.Analyzer(cfg, upstream, metrics, logger)
 	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
 	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)

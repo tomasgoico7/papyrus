@@ -28,6 +28,11 @@ type Metrics struct {
 
 	cacheLookups *prometheus.CounterVec
 	cacheShared  prometheus.Counter
+
+	jobsProcessed *prometheus.CounterVec
+	jobDuration   prometheus.Histogram
+	jobsQueued    prometheus.Gauge
+	jobsRunning   prometheus.Gauge
 }
 
 func NewMetrics() *Metrics {
@@ -67,6 +72,32 @@ func NewMetrics() *Metrics {
 				Help: "Requests answered by joining an identical analysis already in flight.",
 			},
 		),
+		jobsProcessed: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "analysis_jobs_processed_total",
+				Help: "Job attempts finished, by outcome: done, retried, failed or lost.",
+			},
+			[]string{"outcome"},
+		),
+		jobDuration: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Name:    "analysis_job_duration_seconds",
+				Help:    "How long one attempt at an analysis took.",
+				Buckets: latencyBuckets,
+			},
+		),
+		jobsQueued: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "analysis_jobs_queued",
+				Help: "Jobs waiting to be claimed.",
+			},
+		),
+		jobsRunning: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "analysis_jobs_running",
+				Help: "Jobs currently claimed by a worker.",
+			},
+		),
 	}
 
 	m.registry.MustRegister(
@@ -75,6 +106,10 @@ func NewMetrics() *Metrics {
 		m.inFlight,
 		m.cacheLookups,
 		m.cacheShared,
+		m.jobsProcessed,
+		m.jobDuration,
+		m.jobsQueued,
+		m.jobsRunning,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -147,4 +182,28 @@ func (m *Metrics) RecordCacheLookup(result string) {
 // already running instead of starting its own.
 func (m *Metrics) RecordCacheShared() {
 	m.cacheShared.Inc()
+}
+
+// Job outcomes. Lost is its own case rather than a failure: the analysis ran,
+// and the result could not be recorded — usually because the job had already
+// been reclaimed. Counting it as a failure would hide wasted work behind a
+// number that looks like a bug in the model.
+const (
+	JobDone    = "done"
+	JobRetried = "retried"
+	JobFailed  = "failed"
+	JobLost    = "lost"
+)
+
+// RecordJob counts one finished attempt and how long it took.
+func (m *Metrics) RecordJob(outcome string, took time.Duration) {
+	m.jobsProcessed.WithLabelValues(outcome).Inc()
+	m.jobDuration.Observe(took.Seconds())
+}
+
+// SetQueueDepth publishes what is waiting and what is in progress. A queue that
+// grows while jobs keep succeeding means too few workers, not broken ones.
+func (m *Metrics) SetQueueDepth(queued, running int) {
+	m.jobsQueued.Set(float64(queued))
+	m.jobsRunning.Set(float64(running))
 }
