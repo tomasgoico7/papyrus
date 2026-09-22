@@ -131,15 +131,19 @@ papyrus/
 │       ├── i18n/                # diccionarios (en/es) + helpers de server y cliente
 │       └── supabase/            # clientes browser / server / middleware
 ├── gateway/                     # borde Go + Gin
-│   ├── cmd/server/              # entrypoint + graceful shutdown
+│   ├── cmd/server/              # API: entrypoint + graceful shutdown
+│   ├── cmd/worker/              # worker de la cola como servicio propio
 │   └── internal/
+│       ├── app/                 # composition root: el wiring que comparten API y worker
 │       ├── auth/                # fetch + caché de JWKS, verificación ES256/RS256
 │       ├── cache/               # store de bytes: LRU en proceso, Redis, y el tier
 │       ├── config/              # carga + validación del entorno (fail fast)
 │       ├── handlers/, router/   # /analyze, /health, /metrics, armado del engine
+│       ├── jobs/                # cola en Postgres, reclamada con SKIP LOCKED
 │       ├── middleware/          # CORS, auth, rate limiting, request id
 │       ├── observability/       # logger estructurado y métricas RED
 │       ├── requestid/           # id de correlación y su transporte por contexto
+│       ├── worker/              # loop de la cola, backoff con jitter, dead letters
 │       └── services/, transport/, httpx/
 ├── ai-service/                  # Python + FastAPI
 │   ├── app/{api,core,schemas,services}/
