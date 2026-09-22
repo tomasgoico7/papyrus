@@ -348,7 +348,7 @@ func TestCompleteStoresTheResultAndDropsTheUpload(t *testing.T) {
 	assertUploadDropped(t, claimed.ID)
 }
 
-func TestFailEndsTheJobAndDropsTheUpload(t *testing.T) {
+func TestFailEndsTheJobButKeepsTheUpload(t *testing.T) {
 	store := newStore(t)
 	ctx := context.Background()
 
@@ -368,7 +368,8 @@ func TestFailEndsTheJobAndDropsTheUpload(t *testing.T) {
 	if job.ErrorCode != "unreadable_cv" {
 		t.Errorf("error code = %q", job.ErrorCode)
 	}
-	assertUploadDropped(t, claimed.ID)
+	// Kept on purpose: a dead letter nobody can re-run is not much of a queue.
+	assertUploadKept(t, claimed.ID)
 }
 
 func TestRetryReturnsTheJobToTheQueue(t *testing.T) {
@@ -445,29 +446,111 @@ func TestGetReportsAnUnknownID(t *testing.T) {
 	}
 }
 
-func TestDepthCountsWhatIsWaitingAndWhatIsRunning(t *testing.T) {
+func TestMeasureCountsWaitingRunningAndDead(t *testing.T) {
 	store := newStore(t)
 	ctx := context.Background()
 
-	for i := range 3 {
+	for i := range 4 {
 		if _, _, err := store.Enqueue(ctx, newJob(fmt.Sprintf("d-%d", i))); err != nil {
 			t.Fatalf("enqueue: %v", err)
 		}
 	}
-	if _, err := store.Claim(ctx, time.Minute); err != nil {
-		t.Fatalf("claim: %v", err)
+
+	running, _ := store.Claim(ctx, time.Minute)
+	dead, _ := store.Claim(ctx, time.Minute)
+	if err := store.Fail(ctx, dead.ID, "unreadable_cv", "no"); err != nil {
+		t.Fatalf("fail: %v", err)
 	}
 
-	queued, running, err := store.Depth(ctx)
+	depth, err := store.Measure(ctx)
 	if err != nil {
-		t.Fatalf("depth: %v", err)
+		t.Fatalf("measure: %v", err)
 	}
-	if queued != 2 || running != 1 {
-		t.Errorf("queued=%d running=%d, want 2 and 1", queued, running)
+	if depth.Queued != 2 || depth.Running != 1 || depth.Dead != 1 {
+		t.Errorf("depth = %+v, want 2 queued, 1 running, 1 dead (running job %s)", depth, running.ID)
+	}
+}
+
+func TestPurgeKeepsLiveJobsAndDeadLettersLongerThanSuccesses(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	// One of each: finished, given up on, and still queued. The order matters —
+	// Claim takes the oldest job that is due, so the one meant to stay queued is
+	// enqueued last, after there is nothing left to claim.
+	if _, _, err := store.Enqueue(ctx, newJob("finished")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	done, err := store.Claim(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := store.Complete(ctx, done.ID, json.RawMessage(`{"score":80}`)); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if _, _, err := store.Enqueue(ctx, newJob("gave-up")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	failed, err := store.Claim(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := store.Fail(ctx, failed.ID, "unreadable_cv", "no"); err != nil {
+		t.Fatalf("fail: %v", err)
+	}
+
+	queued, _, err := store.Enqueue(ctx, newJob("still-waiting"))
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Both finished a moment ago, so a retention of an hour removes neither.
+	removed, err := store.PurgeFinished(ctx, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed %d rows, want none inside the retention window", removed)
+	}
+
+	// Now with the successful one out of its window and the dead one still in.
+	removed, err = store.PurgeFinished(ctx, 0, time.Hour)
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed %d rows, want just the finished one", removed)
+	}
+
+	if _, err := store.Get(ctx, done.ID, testerA); !errors.Is(err, jobs.ErrNotFound) {
+		t.Error("the finished job should have been swept away")
+	}
+	if _, err := store.Get(ctx, failed.ID, testerA); err != nil {
+		t.Error("a dead letter is the one somebody wants to look at; it should outlive a success")
+	}
+	// A job that never finished has no business being deleted by a retention
+	// sweep, whatever its age.
+	if _, err := store.Get(ctx, queued.ID, testerA); err != nil {
+		t.Error("a job still waiting to run must never be purged")
+	}
+}
+
+func assertUploadKept(t *testing.T, id string) {
+	t.Helper()
+	if uploadSize(t, id) == nil {
+		t.Error("the upload was dropped; a dead letter has to stay re-runnable")
 	}
 }
 
 func assertUploadDropped(t *testing.T, id string) {
+	t.Helper()
+	if size := uploadSize(t, id); size != nil {
+		t.Errorf("the upload is still stored (%d bytes) after the job succeeded", *size)
+	}
+}
+
+func uploadSize(t *testing.T, id string) *int {
 	t.Helper()
 	var size *int
 	if err := pool.QueryRow(context.Background(),
@@ -475,7 +558,5 @@ func assertUploadDropped(t *testing.T, id string) {
 	).Scan(&size); err != nil {
 		t.Fatalf("reading cv size: %v", err)
 	}
-	if size != nil {
-		t.Errorf("the upload is still stored (%d bytes) after the job finished", *size)
-	}
+	return size
 }

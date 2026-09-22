@@ -497,7 +497,7 @@ These all cost me real time while building it, so they're worth writing down:
 ## Decisions and trade-offs
 
 The summary is here; the full log — one decision per file, with its context and
-consequences — lives in [`docs/adr/`](docs/adr/).
+consequences — lives in [`docs/adr/`](docs/adr/). The [runbook](docs/runbook.md) has the operational half: what to look at when something breaks.
 
 A few choices I'd defend, and the cost of each:
 

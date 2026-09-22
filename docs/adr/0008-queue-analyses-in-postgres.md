@@ -48,10 +48,18 @@ twice — and the key is the cache key from
 "the same analysis" means. Once a job reaches a terminal state it stops holding
 the key and the analysis can be asked for again.
 
-**The upload lives in the row**, as `bytea`, and is dropped the moment the job
-finishes. The alternative — a second storage system, or Redis as a required
-dependency rather than an optional one — buys scalability this does not need. A
-5 MB ceiling and prompt cleanup keeps it bounded.
+**The upload lives in the row**, as `bytea`. The alternative — a second storage
+system, or Redis as a required dependency rather than an optional one — buys
+scalability this does not need.
+
+A successful job drops its bytes immediately: the caller has the result and the
+cache holds it. A failed one keeps them until the retention sweep takes the whole
+row, because a dead letter nobody can re-run is not much of a dead letter queue.
+Failures are rare enough that the space is not the constraint.
+
+**Finished jobs are swept on a timer.** Nothing else removes them, and a row per
+analysis kept forever is a slow leak on a database measured in hundreds of
+megabytes. Successes go after a day, dead letters after a week.
 
 **The table has RLS enabled and no policies.** Unlike `analyses` and `cvs`, it
 is not part of the client's data plane ([0002](0002-let-the-browser-read-the-database-directly.md)):

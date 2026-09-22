@@ -36,6 +36,10 @@ type Config struct {
 	// this keeps the code split and the deployment joint.
 	RunWorker         bool
 	WorkerConcurrency int
+	// How long a finished job is kept before it is swept away. Dead letters
+	// outlive successes: they are the ones somebody wants to look at.
+	JobRetention time.Duration
+	DLQRetention time.Duration
 }
 
 func (c Config) IsProduction() bool {
@@ -82,6 +86,16 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	jobRetentionHours, err := intWithDefault("JOB_RETENTION_HOURS", 24)
+	if err != nil {
+		return nil, err
+	}
+
+	dlqRetentionHours, err := intWithDefault("DLQ_RETENTION_HOURS", 168)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:           stringWithDefault("PORT", "8080"),
 		Environment:    stringWithDefault("ENVIRONMENT", "development"),
@@ -101,6 +115,8 @@ func Load() (*Config, error) {
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		RunWorker:         boolWithDefault("RUN_WORKER", false),
 		WorkerConcurrency: workerConcurrency,
+		JobRetention:      time.Duration(jobRetentionHours) * time.Hour,
+		DLQRetention:      time.Duration(dlqRetentionHours) * time.Hour,
 	}, nil
 }
 

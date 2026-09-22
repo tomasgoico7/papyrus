@@ -30,6 +30,7 @@ type fakeQueue struct {
 	failed    map[string]string
 
 	completeErr error
+	purges      [][2]time.Duration
 	drained     chan struct{}
 	closeOnce   sync.Once
 }
@@ -81,10 +82,17 @@ func (q *fakeQueue) Fail(_ context.Context, id, code, _ string) error {
 	return nil
 }
 
-func (q *fakeQueue) Depth(context.Context) (int, int, error) {
+func (q *fakeQueue) Measure(context.Context) (jobs.Depth, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return len(q.pending), 0, nil
+	return jobs.Depth{Queued: len(q.pending), Dead: len(q.failed)}, nil
+}
+
+func (q *fakeQueue) PurgeFinished(_ context.Context, doneAfter, deadAfter time.Duration) (int64, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.purges = append(q.purges, [2]time.Duration{doneAfter, deadAfter})
+	return 0, nil
 }
 
 func (q *fakeQueue) snapshot() (completed map[string][]byte, retried map[string]time.Time, failed map[string]string) {
@@ -167,6 +175,9 @@ func run(t *testing.T, queue *fakeQueue, analyzer services.Analyzer) {
 			BaseBackoff:   10 * time.Millisecond,
 			MaxBackoff:    50 * time.Millisecond,
 			DepthInterval: time.Hour,
+			PurgeInterval: time.Hour,
+			DoneRetention: 24 * time.Hour,
+			DeadRetention: 7 * 24 * time.Hour,
 		},
 	)
 
@@ -327,5 +338,27 @@ func TestWorkerStopsOnAnEmptyQueueWithoutSpinning(t *testing.T) {
 	completed, retried, failed := queue.snapshot()
 	if len(completed)+len(retried)+len(failed) != 0 {
 		t.Error("an empty queue should produce no work at all")
+	}
+}
+
+func TestWorkerSweepsFinishedJobsOnItsOwn(t *testing.T) {
+	// Nothing else deletes a finished job, so the worker has to — and it has to
+	// keep a dead one longer than a successful one, because the dead one is what
+	// somebody will want to look at.
+	queue := newFakeQueue()
+	run(t, queue, stubAnalyzer{})
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+
+	if len(queue.purges) == 0 {
+		t.Fatal("the worker never swept finished jobs")
+	}
+	done, dead := queue.purges[0][0], queue.purges[0][1]
+	if done <= 0 || dead <= 0 {
+		t.Fatalf("retentions = %v / %v, want both positive", done, dead)
+	}
+	if dead <= done {
+		t.Errorf("dead letters kept for %v, successes for %v; the dead ones should outlive them", dead, done)
 	}
 }

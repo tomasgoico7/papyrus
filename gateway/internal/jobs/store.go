@@ -135,7 +135,8 @@ func (s *Store) Claim(ctx context.Context, staleAfter time.Duration) (*Job, erro
 	return &job, nil
 }
 
-// Complete stores the result and ends the job, dropping the upload with it.
+// Complete stores the result and ends the job, dropping the upload with it: the
+// caller has the answer and the cache holds it, so the bytes are dead weight.
 func (s *Store) Complete(ctx context.Context, id string, result json.RawMessage) error {
 	const query = `
 		update analysis_jobs
@@ -159,12 +160,17 @@ func (s *Store) Retry(ctx context.Context, id string, runAfter time.Time, code, 
 	return s.exec(ctx, "retry", query, id, runAfter, code, message)
 }
 
-// Fail ends a job for good. The upload is dropped: whatever went wrong will not
-// be fixed by keeping the bytes.
+// Fail ends a job for good, and deliberately keeps the upload.
+//
+// A success drops its bytes immediately: the client has the result and the cache
+// holds it. A dead letter is the one somebody will want to act on, and a job
+// that cannot be re-run is not much of a dead letter queue — so the bytes stay
+// until the retention sweep takes the whole row. Failures are rare enough that
+// the space is not the constraint.
 func (s *Store) Fail(ctx context.Context, id, code, message string) error {
 	const query = `
 		update analysis_jobs
-		set state = 'failed', cv = null,
+		set state = 'failed',
 		    error_code = $2, error_message = $3,
 		    finished_at = now(), updated_at = now()
 		where id = $1 and state = 'running'`
@@ -192,18 +198,50 @@ func (s *Store) Get(ctx context.Context, id, userID string) (*Job, error) {
 	return job, nil
 }
 
-// Depth counts the jobs waiting and the jobs running, for the queue metrics.
-func (s *Store) Depth(ctx context.Context) (queued, running int, err error) {
+// Depth is what the queue looks like right now.
+type Depth struct {
+	Queued  int
+	Running int
+	// Dead is the standing dead letter count: jobs that gave up and are still
+	// on the table. A counter of failures says how often it happens; this says
+	// how much is sitting there unattended, which is the one worth alerting on.
+	Dead int
+}
+
+// Measure counts the queue for the metrics gauges.
+func (s *Store) Measure(ctx context.Context) (Depth, error) {
 	const query = `
 		select
 			count(*) filter (where state = 'queued'),
-			count(*) filter (where state = 'running')
+			count(*) filter (where state = 'running'),
+			count(*) filter (where state = 'failed')
 		from analysis_jobs`
 
-	if err := s.pool.QueryRow(ctx, query).Scan(&queued, &running); err != nil {
-		return 0, 0, fmt.Errorf("jobs: depth: %w", err)
+	var depth Depth
+	if err := s.pool.QueryRow(ctx, query).Scan(&depth.Queued, &depth.Running, &depth.Dead); err != nil {
+		return Depth{}, fmt.Errorf("jobs: measure: %w", err)
 	}
-	return queued, running, nil
+	return depth, nil
+}
+
+// PurgeFinished deletes jobs that have outlived their usefulness.
+//
+// Nothing else removes them: the upload is dropped when a job ends, but the row
+// and its result stay. The client collects a result within seconds and the
+// cache holds it afterwards, so a finished job is worth keeping only long
+// enough to debug — and a dead one longer than a successful one, because that
+// is the one somebody will want to look at.
+func (s *Store) PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error) {
+	const query = `
+		delete from analysis_jobs
+		where (state = 'done' and finished_at < now() - make_interval(secs => $1))
+		   or (state = 'failed' and finished_at < now() - make_interval(secs => $2))`
+
+	tag, err := s.pool.Exec(ctx, query, doneAfter.Seconds(), deadAfter.Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("jobs: purge: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (s *Store) exec(ctx context.Context, op, query string, args ...any) error {

@@ -499,7 +499,7 @@ Todos estos me costaron tiempo real mientras lo construía, así que vale la pen
 ## Decisiones y trade-offs
 
 El resumen está acá; el registro completo, una decisión por archivo con su contexto
-y sus consecuencias, vive en [`docs/adr/`](docs/adr/).
+y sus consecuencias, vive en [`docs/adr/`](docs/adr/). El [runbook](docs/runbook.md) tiene lo operativo: qué mirar cuando algo se rompe.
 
 Algunas elecciones que defiendo, y el costo de cada una:
 

@@ -33,6 +33,7 @@ type Metrics struct {
 	jobDuration   prometheus.Histogram
 	jobsQueued    prometheus.Gauge
 	jobsRunning   prometheus.Gauge
+	jobsDead      prometheus.Gauge
 }
 
 func NewMetrics() *Metrics {
@@ -98,6 +99,12 @@ func NewMetrics() *Metrics {
 				Help: "Jobs currently claimed by a worker.",
 			},
 		),
+		jobsDead: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "analysis_jobs_dead",
+				Help: "Jobs that gave up and are still on the table, awaiting attention.",
+			},
+		),
 	}
 
 	m.registry.MustRegister(
@@ -110,6 +117,7 @@ func NewMetrics() *Metrics {
 		m.jobDuration,
 		m.jobsQueued,
 		m.jobsRunning,
+		m.jobsDead,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -201,9 +209,11 @@ func (m *Metrics) RecordJob(outcome string, took time.Duration) {
 	m.jobDuration.Observe(took.Seconds())
 }
 
-// SetQueueDepth publishes what is waiting and what is in progress. A queue that
-// grows while jobs keep succeeding means too few workers, not broken ones.
-func (m *Metrics) SetQueueDepth(queued, running int) {
+// SetQueueDepth publishes what is waiting, what is in progress, and what has
+// given up. A queue that grows while jobs keep succeeding means too few workers,
+// not broken ones — and a dead letter count that climbs means the opposite.
+func (m *Metrics) SetQueueDepth(queued, running, dead int) {
 	m.jobsQueued.Set(float64(queued))
 	m.jobsRunning.Set(float64(running))
+	m.jobsDead.Set(float64(dead))
 }

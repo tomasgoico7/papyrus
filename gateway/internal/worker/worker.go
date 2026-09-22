@@ -29,7 +29,8 @@ type Queue interface {
 	Complete(ctx context.Context, id string, result json.RawMessage) error
 	Retry(ctx context.Context, id string, runAfter time.Time, code, message string) error
 	Fail(ctx context.Context, id, code, message string) error
-	Depth(ctx context.Context) (queued, running int, err error)
+	Measure(ctx context.Context) (jobs.Depth, error)
+	PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error)
 }
 
 // Config tunes the loop. Every field has a working default.
@@ -48,6 +49,11 @@ type Config struct {
 	MaxBackoff  time.Duration
 	// DepthInterval is how often the queue gauges are refreshed.
 	DepthInterval time.Duration
+	// PurgeInterval is how often finished jobs are swept away, and
+	// DoneRetention / DeadRetention are how long each kind is kept first.
+	PurgeInterval time.Duration
+	DoneRetention time.Duration
+	DeadRetention time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -71,6 +77,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DepthInterval <= 0 {
 		c.DepthInterval = 15 * time.Second
+	}
+	if c.PurgeInterval <= 0 {
+		c.PurgeInterval = time.Hour
+	}
+	if c.DoneRetention <= 0 {
+		c.DoneRetention = 24 * time.Hour
+	}
+	if c.DeadRetention <= 0 {
+		c.DeadRetention = 7 * 24 * time.Hour
 	}
 	return c
 }
@@ -121,6 +136,12 @@ func (w *Worker) Run(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		w.reportDepth(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		w.purge(ctx)
 	}()
 
 	wg.Wait()
@@ -274,11 +295,38 @@ func (w *Worker) reportDepth(ctx context.Context) {
 	defer ticker.Stop()
 
 	for {
-		queued, running, err := w.queue.Depth(ctx)
+		depth, err := w.queue.Measure(ctx)
 		if err == nil {
-			w.metrics.SetQueueDepth(queued, running)
+			w.metrics.SetQueueDepth(depth.Queued, depth.Running, depth.Dead)
 		} else if ctx.Err() == nil {
 			w.logger.Warn("reading the queue depth failed", slog.Any("error", err))
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// purge sweeps away jobs that have outlived their usefulness.
+//
+// Nothing else does: a finished job keeps its row and its result forever, and on
+// a database sized in hundreds of megabytes that is a slow leak rather than a
+// harmless one. Every worker runs this; the delete is idempotent, so several of
+// them racing costs a wasted statement, not a wrong answer.
+func (w *Worker) purge(ctx context.Context) {
+	ticker := time.NewTicker(w.cfg.PurgeInterval)
+	defer ticker.Stop()
+
+	for {
+		removed, err := w.queue.PurgeFinished(ctx, w.cfg.DoneRetention, w.cfg.DeadRetention)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			w.logger.Warn("purging finished jobs failed", slog.Any("error", err))
+		case removed > 0:
+			w.logger.Info("purged finished jobs", slog.Int64("removed", removed))
 		}
 
 		select {

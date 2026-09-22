@@ -62,6 +62,9 @@ func runWorker(t *testing.T, store *jobs.Store, analyzer services.Analyzer, unti
 			BaseBackoff:   time.Millisecond,
 			MaxBackoff:    5 * time.Millisecond,
 			DepthInterval: time.Hour,
+			PurgeInterval: time.Hour,
+			DoneRetention: time.Hour,
+			DeadRetention: 24 * time.Hour,
 		},
 	)
 
@@ -107,8 +110,8 @@ func TestWorkerDrainsRealJobsEndToEnd(t *testing.T) {
 
 	analyzer := &scriptedAnalyzer{}
 	runWorker(t, store, analyzer, func() bool {
-		queued, running, err := store.Depth(ctx)
-		return err == nil && queued == 0 && running == 0
+		depth, err := store.Measure(ctx)
+		return err == nil && depth.Queued == 0 && depth.Running == 0
 	})
 
 	if got := analyzer.calls.Load(); got != total {
@@ -198,8 +201,8 @@ func TestWorkerSendsAJobToTheDeadLetterStateOnceSpent(t *testing.T) {
 	if final.ErrorCode == "" {
 		t.Error("a dead job should carry why it died")
 	}
-	// Nothing is going to be fixed by keeping the bytes around.
-	assertUploadDropped(t, job.ID)
+	// The bytes stay so the job can be re-run once whatever broke is fixed.
+	assertUploadKept(t, job.ID)
 }
 
 func TestWorkerDoesNotRetryAnInputThatWillNeverWork(t *testing.T) {
