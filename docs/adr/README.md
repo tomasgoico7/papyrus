@@ -24,6 +24,7 @@ duplicating the depth here would double the maintenance for no reader.
 | [0005](0005-keep-deterministic-work-out-of-the-model.md) | Keep deterministic work out of the model | Accepted |
 | [0006](0006-correlate-and-measure-every-request.md) | Correlate and measure every request | Accepted |
 | [0007](0007-cache-analyses-in-two-tiers.md) | Cache analyses in two tiers | Accepted |
+| [0008](0008-queue-analyses-in-postgres.md) | Queue analyses in Postgres | Accepted |
 
 Records 0001 to 0005 were written after the fact, from decisions already visible
 in the code. Everything from 0006 on is recorded as it is taken.
