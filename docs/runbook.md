@@ -159,6 +159,12 @@ report `prepared statement already exists`. Nothing needs to be configured for
 this — it is set in code — but it is worth knowing if the connection string is
 ever changed to a direct one.
 
+Exec mode has a consequence worth remembering when writing queries: without a
+prepared statement there is no type information for the parameters, so anything
+going into a non-text column needs an explicit cast (`$2::jsonb`). A statement
+that works under pgx's default mode can fail under this one, which is why the
+test pool is configured the same way.
+
 ---
 
 ## Rolling back

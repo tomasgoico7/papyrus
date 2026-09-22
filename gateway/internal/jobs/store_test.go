@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -59,7 +60,19 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	pool, err = pgxpool.New(ctx, dsn)
+	// Built the way the deployed pool is built, including the query mode. The
+	// point of testing against a real engine is lost if the connection is
+	// configured differently from the one that runs in production — a statement
+	// that works under pgx's default mode can fail under exec mode, and that
+	// difference is invisible to a test pool that uses the default.
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "parsing dsn: %v\n", err)
+		os.Exit(1)
+	}
+	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+
+	pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connecting: %v\n", err)
 		os.Exit(1)

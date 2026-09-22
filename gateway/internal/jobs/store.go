@@ -138,14 +138,19 @@ func (s *Store) Claim(ctx context.Context, staleAfter time.Duration) (*Job, erro
 // Complete stores the result and ends the job, dropping the upload with it: the
 // caller has the answer and the cache holds it, so the bytes are dead weight.
 func (s *Store) Complete(ctx context.Context, id string, result json.RawMessage) error {
+	// The cast is load-bearing. Without a prepared statement to carry the
+	// column's type — which is the case in exec mode, the mode a transaction
+	// pooler forces — the driver has no way to know this parameter is json, and
+	// Postgres rejects it. Passing it as text with an explicit cast says so
+	// outright, and works in either mode.
 	const query = `
 		update analysis_jobs
-		set state = 'done', result = $2, cv = null,
+		set state = 'done', result = $2::jsonb, cv = null,
 		    error_code = null, error_message = null,
 		    finished_at = now(), updated_at = now()
 		where id = $1 and state = 'running'`
 
-	return s.exec(ctx, "complete", query, id, []byte(result))
+	return s.exec(ctx, "complete", query, id, string(result))
 }
 
 // Retry puts a job back in the queue, held until runAfter. The delay is the
