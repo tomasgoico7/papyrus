@@ -137,7 +137,7 @@ func startWorker(
 		logger.With(slog.String("component", "worker")),
 		worker.Config{
 			Concurrency:   cfg.WorkerConcurrency,
-			JobTimeout:    cfg.RequestTimeout,
+			JobTimeout:    cfg.JobTimeout,
 			DoneRetention: cfg.JobRetention,
 			DeadRetention: cfg.DLQRetention,
 		},

@@ -573,3 +573,96 @@ func uploadSize(t *testing.T, id string) *int {
 	}
 	return size
 }
+
+// TestClaimStopsReclaimingOnceTheAttemptsAreSpent covers the half of the ceiling
+// the worker cannot enforce. The worker gives up after the last attempt fails,
+// but a worker that is killed mid-attempt never gets to decide anything. Without
+// a ceiling here the job is handed out again on every sweep: one reached seven
+// attempts against a limit of three across a run of deploys.
+func TestClaimStopsReclaimingOnceTheAttemptsAreSpent(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	if _, _, err := store.Enqueue(ctx, newJob("spent")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// A zero window means every claim looks abandoned, so each pass is a
+		// worker dying without recording anything.
+		job, err := store.Claim(ctx, 0)
+		if err != nil {
+			t.Fatalf("claim %d: %v", attempt, err)
+		}
+		if job.Attempts != attempt {
+			t.Fatalf("attempts = %d on claim %d", job.Attempts, attempt)
+		}
+	}
+
+	_, err := store.Claim(ctx, 0)
+	if !errors.Is(err, jobs.ErrNotFound) {
+		t.Fatalf("claim past the ceiling returned %v, want ErrNotFound", err)
+	}
+}
+
+func TestFailAbandonedClosesAJobNoWorkerWillTakeBack(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	if _, _, err := store.Enqueue(ctx, newJob("abandoned-for-good")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	for range 3 {
+		if _, err := store.Claim(ctx, 0); err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+	}
+
+	closed, err := store.FailAbandoned(ctx, 0)
+	if err != nil {
+		t.Fatalf("fail abandoned: %v", err)
+	}
+	if closed != 1 {
+		t.Fatalf("closed %d jobs, want 1", closed)
+	}
+
+	depth, err := store.Measure(ctx)
+	if err != nil {
+		t.Fatalf("measure: %v", err)
+	}
+	// Left running it would count against the queue's depth forever, and the
+	// person who asked for it would never be told anything.
+	if depth.Running != 0 {
+		t.Errorf("running = %d, want the abandoned job closed", depth.Running)
+	}
+	if depth.Dead != 1 {
+		t.Errorf("dead = %d, want the abandoned job counted as a dead letter", depth.Dead)
+	}
+}
+
+func TestFailAbandonedLeavesAJobThatStillHasAttempts(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	if _, _, err := store.Enqueue(ctx, newJob("still-retriable")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if _, err := store.Claim(ctx, 0); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	// One attempt of three used. This job is stale, but it is the reclaim's to
+	// pick up, not the sweep's to bury.
+	closed, err := store.FailAbandoned(ctx, 0)
+	if err != nil {
+		t.Fatalf("fail abandoned: %v", err)
+	}
+	if closed != 0 {
+		t.Errorf("closed %d jobs, want the retriable one left alone", closed)
+	}
+
+	if _, err := store.Claim(ctx, 0); err != nil {
+		t.Errorf("the job should still be claimable: %v", err)
+	}
+}

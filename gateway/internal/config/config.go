@@ -36,6 +36,13 @@ type Config struct {
 	// this keeps the code split and the deployment joint.
 	RunWorker         bool
 	WorkerConcurrency int
+	// JobTimeout bounds one attempt at an analysis in the background. It is
+	// separate from RequestTimeout because the two answer different questions:
+	// that one is how long a person holding a connection open will be made to
+	// wait, this one is how long a queued job may take when nobody is waiting on
+	// a socket at all. Reusing the request budget here made a job give up eight
+	// seconds after the only successful analysis we had measured.
+	JobTimeout time.Duration
 	// How long a finished job is kept before it is swept away. Dead letters
 	// outlive successes: they are the ones somebody wants to look at.
 	JobRetention time.Duration
@@ -81,6 +88,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	jobTimeoutSeconds, err := intWithDefault("JOB_TIMEOUT_SECONDS", 120)
+	if err != nil {
+		return nil, err
+	}
+
 	workerConcurrency, err := intWithDefault("WORKER_CONCURRENCY", 2)
 	if err != nil {
 		return nil, err
@@ -115,6 +127,7 @@ func Load() (*Config, error) {
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		RunWorker:         boolWithDefault("RUN_WORKER", false),
 		WorkerConcurrency: workerConcurrency,
+		JobTimeout:        time.Duration(jobTimeoutSeconds) * time.Second,
 		JobRetention:      time.Duration(jobRetentionHours) * time.Hour,
 		DLQRetention:      time.Duration(dlqRetentionHours) * time.Hour,
 	}, nil

@@ -32,6 +32,7 @@ type Queue interface {
 	Fail(ctx context.Context, id, code, message string) error
 	Measure(ctx context.Context) (jobs.Depth, error)
 	PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error)
+	FailAbandoned(ctx context.Context, staleAfter time.Duration) (int64, error)
 }
 
 // Readiness reports whether the upstream can take work. Optional: without one
@@ -86,9 +87,6 @@ func (c Config) withDefaults() Config {
 	if c.PollInterval <= 0 {
 		c.PollInterval = 2 * time.Second
 	}
-	if c.ClaimStaleAfter <= 0 {
-		c.ClaimStaleAfter = 5 * time.Minute
-	}
 	if c.JobTimeout <= 0 {
 		c.JobTimeout = 90 * time.Second
 	}
@@ -124,11 +122,25 @@ func (c Config) withDefaults() Config {
 	if c.BookkeepingTimeout <= 0 {
 		c.BookkeepingTimeout = 15 * time.Second
 	}
+
+	if c.ClaimStaleAfter <= 0 {
+		// Derived, not chosen. Reclaiming a job whose worker is merely slow runs
+		// it twice, so the threshold has to clear the longest an attempt can
+		// legitimately take — the attempt itself, plus a wait for a sleeping
+		// upstream, plus writing the outcome down — with room to spare. Setting
+		// it by hand is how it silently falls under that sum when one of the
+		// three grows.
+		longest := c.JobTimeout + c.WakeBudget + c.BookkeepingTimeout
+		c.ClaimStaleAfter = 2 * longest
+	}
 	if c.DepthInterval <= 0 {
 		c.DepthInterval = 15 * time.Second
 	}
 	if c.PurgeInterval <= 0 {
-		c.PurgeInterval = time.Hour
+		// This paces two different things: sweeping old rows, which could happen
+		// daily, and closing jobs whose worker died, which is somebody waiting.
+		// The second one sets the interval.
+		c.PurgeInterval = 2 * time.Minute
 	}
 	if c.DoneRetention <= 0 {
 		c.DoneRetention = 24 * time.Hour
@@ -417,6 +429,17 @@ func (w *Worker) purge(ctx context.Context) {
 			w.logger.Warn("purging finished jobs failed", slog.Any("error", err))
 		case removed > 0:
 			w.logger.Info("purged finished jobs", slog.Int64("removed", removed))
+		}
+
+		abandoned, err := w.queue.FailAbandoned(ctx, w.cfg.ClaimStaleAfter)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			w.logger.Warn("failing abandoned jobs failed", slog.Any("error", err))
+		case abandoned > 0:
+			// Worth a warning rather than an info line: every one of these is
+			// somebody who asked for an analysis and would otherwise still be
+			// waiting for it.
+			w.logger.Warn("failed jobs abandoned by a dead worker", slog.Int64("count", abandoned))
 		}
 
 		select {

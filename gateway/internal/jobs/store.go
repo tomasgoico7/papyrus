@@ -101,7 +101,18 @@ func (s *Store) Claim(ctx context.Context, staleAfter time.Duration) (*Job, erro
 			select id
 			from analysis_jobs
 			where (state = 'queued' and run_after <= now())
-			   or (state = 'running' and claimed_at < now() - make_interval(secs => $1))
+			   or (
+			        state = 'running'
+			        and claimed_at < now() - make_interval(secs => $1)
+			        -- The ceiling has to be enforced here and not only in the
+			        -- worker. The worker's check runs when an attempt ends in an
+			        -- error; a worker that is killed mid-attempt never reaches
+			        -- it, so without this a job is reclaimed forever and its
+			        -- attempts climb past the maximum. One job reached seven
+			        -- against a limit of three that way, across a run of
+			        -- deploys.
+			        and attempts < max_attempts
+			      )
 			order by run_after, created_at
 			for update skip locked
 			limit 1
@@ -236,6 +247,32 @@ func (s *Store) Measure(ctx context.Context) (Depth, error) {
 // cache holds it afterwards, so a finished job is worth keeping only long
 // enough to debug — and a dead one longer than a successful one, because that
 // is the one somebody will want to look at.
+// FailAbandoned ends jobs that were claimed and never finished, and have no
+// attempts left to give. They exist because a process can die between claiming
+// work and recording what happened to it — a deploy, an eviction, a crash.
+//
+// Without this they are unreachable: the claim is stale so no worker will look
+// at them again now that the reclaim respects the ceiling, and nothing else
+// moves a running job. They would sit in the queue counting against its depth
+// forever, and the person waiting would never be told.
+func (s *Store) FailAbandoned(ctx context.Context, staleAfter time.Duration) (int64, error) {
+	const query = `
+		update analysis_jobs
+		set state = 'failed',
+		    error_code = 'worker_lost',
+		    error_message = 'The analysis was interrupted and could not be retried.',
+		    finished_at = now(), updated_at = now()
+		where state = 'running'
+		  and claimed_at < now() - make_interval(secs => $1)
+		  and attempts >= max_attempts`
+
+	tag, err := s.pool.Exec(ctx, query, staleAfter.Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("jobs: fail abandoned: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (s *Store) PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error) {
 	const query = `
 		delete from analysis_jobs

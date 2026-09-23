@@ -68,7 +68,7 @@ func run() error {
 		logger,
 		worker.Config{
 			Concurrency:   cfg.WorkerConcurrency,
-			JobTimeout:    cfg.RequestTimeout,
+			JobTimeout:    cfg.JobTimeout,
 			DoneRetention: cfg.JobRetention,
 			DeadRetention: cfg.DLQRetention,
 		},

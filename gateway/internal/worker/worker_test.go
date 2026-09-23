@@ -30,10 +30,11 @@ type fakeQueue struct {
 	retried   map[string]time.Time
 	failed    map[string]string
 
-	completeErr error
-	purges      [][2]time.Duration
-	drained     chan struct{}
-	closeOnce   sync.Once
+	completeErr   error
+	purges        [][2]time.Duration
+	abandonSweeps []time.Duration
+	drained       chan struct{}
+	closeOnce     sync.Once
 }
 
 func newFakeQueue(pending ...*jobs.Job) *fakeQueue {
@@ -105,6 +106,13 @@ func (q *fakeQueue) PurgeFinished(_ context.Context, doneAfter, deadAfter time.D
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.purges = append(q.purges, [2]time.Duration{doneAfter, deadAfter})
+	return 0, nil
+}
+
+func (q *fakeQueue) FailAbandoned(_ context.Context, staleAfter time.Duration) (int64, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.abandonSweeps = append(q.abandonSweeps, staleAfter)
 	return 0, nil
 }
 
@@ -789,5 +797,70 @@ func TestWorkerShutsDownPromptlyWhileWaitingForAnUpstream(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the worker kept waiting for the upstream after being told to stop")
+	}
+}
+
+func TestClaimStaleAfterOutlastsTheLongestLegitimateAttempt(t *testing.T) {
+	// Reclaiming a job whose worker is only slow runs the analysis twice and
+	// bills for it twice. The threshold is derived rather than written down so
+	// that raising any one of these cannot quietly push it under the sum.
+	cases := []worker.Config{
+		{},
+		{JobTimeout: 10 * time.Minute},
+		{WakeBudget: 8 * time.Minute},
+		{BookkeepingTimeout: 4 * time.Minute},
+		{JobTimeout: 3 * time.Minute, WakeBudget: 3 * time.Minute, BookkeepingTimeout: time.Minute},
+	}
+
+	for _, cfg := range cases {
+		got := worker.Defaults(cfg)
+		longest := got.JobTimeout + got.WakeBudget + got.BookkeepingTimeout
+		if got.ClaimStaleAfter <= longest {
+			t.Errorf("ClaimStaleAfter = %v for %+v; an attempt can legitimately take %v",
+				got.ClaimStaleAfter, cfg, longest)
+		}
+	}
+}
+
+func TestWorkerSweepsJobsAbandonedByADeadWorker(t *testing.T) {
+	queue := newFakeQueue()
+
+	w := worker.New(
+		queue,
+		stubAnalyzer{},
+		nil,
+		observability.NewMetrics(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		worker.Config{
+			Concurrency:   1,
+			PollInterval:  time.Millisecond,
+			DepthInterval: time.Hour,
+			PurgeInterval: 10 * time.Millisecond,
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	<-queue.drained
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+	<-done
+
+	queue.mu.Lock()
+	sweeps := append([]time.Duration(nil), queue.abandonSweeps...)
+	queue.mu.Unlock()
+
+	if len(sweeps) == 0 {
+		t.Fatal("no sweep for abandoned jobs; a job whose worker died is never closed")
+	}
+	// Swept at the same threshold the reclaim uses, or the two disagree about
+	// which jobs are abandoned and a job can be both too old to retry and too
+	// young to close.
+	want := worker.Defaults(worker.Config{}).ClaimStaleAfter
+	for _, got := range sweeps {
+		if got != want {
+			t.Errorf("swept at %v, want the claim threshold %v", got, want)
+		}
 	}
 }
