@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/papyrus/gateway/internal/jobs"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
@@ -861,6 +864,74 @@ func TestWorkerSweepsJobsAbandonedByADeadWorker(t *testing.T) {
 	for _, got := range sweeps {
 		if got != want {
 			t.Errorf("swept at %v, want the claim threshold %v", got, want)
+		}
+	}
+}
+
+// TestWorkerContinuesTheTraceThatEnqueuedTheJob is the reason the queue carries
+// a traceparent at all. Without it the request and the work it caused are two
+// unrelated traces, and the part everybody actually wants to see — how long the
+// job sat before anyone picked it up — is the gap between them, visible in
+// neither.
+func TestWorkerContinuesTheTraceThatEnqueuedTheJob(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(recorder),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	restore := swapTracerProvider(t, provider)
+	defer restore()
+
+	// The trace the request would have been on, serialised the way the row
+	// stores it.
+	const enqueued = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	queued := job("j1", 1, 3)
+	queued.TraceParent = enqueued
+
+	runWith(t, newFakeQueue(queued), stubAnalyzer{}, nil)
+
+	spans := recorder.Ended()
+	if len(spans) == 0 {
+		t.Fatal("the attempt produced no span")
+	}
+
+	var found bool
+	for _, span := range spans {
+		if span.Name() != "analysis job" {
+			continue
+		}
+		found = true
+		if got := span.SpanContext().TraceID().String(); got != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Errorf("trace id = %s, want the one the job was enqueued on", got)
+		}
+		if got := span.Parent().SpanID().String(); got != "00f067aa0ba902b7" {
+			t.Errorf("parent span = %s, want the enqueueing span", got)
+		}
+		if !span.Parent().IsRemote() {
+			t.Error("the parent should be remote: it happened in another process")
+		}
+	}
+	if !found {
+		t.Error("no span named for the attempt")
+	}
+}
+
+func TestWorkerStartsItsOwnTraceForAJobThatHasNone(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(recorder),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	restore := swapTracerProvider(t, provider)
+	defer restore()
+
+	// Enqueued before the column existed, or by a process with tracing off.
+	// Neither is a reason not to run the analysis.
+	runWith(t, newFakeQueue(job("j1", 1, 3)), stubAnalyzer{}, nil)
+
+	for _, span := range recorder.Ended() {
+		if span.Name() == "analysis job" && !span.SpanContext().TraceID().IsValid() {
+			t.Error("the attempt ran without a trace of its own")
 		}
 	}
 }

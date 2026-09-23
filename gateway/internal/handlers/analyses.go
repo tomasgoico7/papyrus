@@ -107,6 +107,9 @@ func (h *AnalysesHandler) Submit(c *gin.Context) {
 		CVFilename: upload.Filename,
 		JobOffer:   upload.JobOffer,
 		JobTitle:   upload.JobTitle,
+		// Stored so the worker can continue this trace minutes from now, in
+		// another process, rather than starting an unrelated one.
+		TraceParent: observability.TraceParentFrom(ctx),
 	})
 	if err != nil {
 		logger.Error("queueing the analysis failed", slog.Any("error", err))

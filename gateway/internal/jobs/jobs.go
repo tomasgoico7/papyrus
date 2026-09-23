@@ -58,6 +58,10 @@ type Job struct {
 	ErrorCode    string
 	ErrorMessage string
 
+	// TraceParent is only populated on a claim, like CV: a caller polling a job
+	// has its own trace and no use for the one that created it.
+	TraceParent string
+
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	FinishedAt *time.Time
@@ -72,4 +76,8 @@ type NewJob struct {
 	JobOffer    string
 	JobTitle    string
 	MaxAttempts int
+	// TraceParent is the W3C trace context of the request doing the enqueueing,
+	// so the worker can continue that trace rather than start its own. Empty
+	// when tracing is off, which is a job like any other.
+	TraceParent string
 }

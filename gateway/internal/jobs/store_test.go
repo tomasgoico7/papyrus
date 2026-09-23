@@ -666,3 +666,44 @@ func TestFailAbandonedLeavesAJobThatStillHasAttempts(t *testing.T) {
 		t.Errorf("the job should still be claimable: %v", err)
 	}
 }
+
+func TestTheTraceCrossesTheQueue(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	const traceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	input := newJob("traced")
+	input.TraceParent = traceParent
+
+	if _, _, err := store.Enqueue(ctx, input); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	claimed, err := store.Claim(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if claimed.TraceParent != traceParent {
+		t.Errorf("traceparent = %q, want %q", claimed.TraceParent, traceParent)
+	}
+}
+
+func TestAJobEnqueuedWithoutATraceClaimsCleanly(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	// Tracing off, or a row written before the column existed. The column is
+	// nullable, and a null must arrive as an empty string rather than as a scan
+	// error that stops the queue.
+	if _, _, err := store.Enqueue(ctx, newJob("untraced")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	claimed, err := store.Claim(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if claimed.TraceParent != "" {
+		t.Errorf("traceparent = %q, want empty", claimed.TraceParent)
+	}
+}

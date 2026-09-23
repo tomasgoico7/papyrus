@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/papyrus/gateway/internal/jobs"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
@@ -250,10 +253,44 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 	)
 	started := time.Now()
 
+	// Pick the trace back up where the request that enqueued this left it. The
+	// attempt becomes part of that trace rather than a trace of its own, which
+	// is the whole point: the queue is otherwise a gap nothing crosses, and the
+	// waiting shows up as a hole between the two halves instead of as itself.
+	//
+	// Every retry lands in the same trace for the same reason. Three attempts
+	// spread over two minutes are one story, and reading them as three
+	// unrelated ones is how a retry loop stays invisible.
+	ctx = observability.ContextWithTraceParent(ctx, job.TraceParent)
+
 	// Detached from the shutdown signal on purpose: a job already claimed is
 	// finished or explicitly released, never silently dropped half-done.
 	runCtx, cancelRun := context.WithTimeout(context.WithoutCancel(ctx), w.cfg.JobTimeout)
 	runCtx = observability.ContextWithLogger(runCtx, logger)
+
+	runCtx, span := observability.Tracer().Start(runCtx, "analysis job",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("job.id", job.ID),
+			attribute.Int("job.attempt", job.Attempts),
+			attribute.Int("job.max_attempts", job.MaxAttempts),
+			// Time since the analysis was first asked for, which on a retry
+			// covers the earlier attempts too. The span only covers this
+			// attempt, so without this the waiting is empty space on the trace
+			// and reads as the worker being slow rather than as a queue.
+			attribute.Float64("job.age_seconds", time.Since(job.CreatedAt).Seconds()),
+		),
+	)
+
+	// Same join as on the request side: without the trace id on the line, a
+	// worker's logs and the span covering them cannot be put side by side.
+	if sc := span.SpanContext(); sc.IsValid() {
+		logger = logger.With(
+			slog.String("trace_id", sc.TraceID().String()),
+			slog.String("span_id", sc.SpanID().String()),
+		)
+		runCtx = observability.ContextWithLogger(runCtx, logger)
+	}
 
 	analysis, err := w.analyzer.Analyze(runCtx, services.AnalyzeRequest{
 		CV:       bytes.NewReader(job.CV),
@@ -262,6 +299,7 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 		JobTitle: job.JobTitle,
 	})
 	elapsed := time.Since(started)
+	observability.EndSpan(span, err)
 	cancelRun()
 
 	// A throttled upstream is usually one that is asleep rather than busy, and

@@ -44,14 +44,15 @@ func (s *Store) Enqueue(ctx context.Context, input NewJob) (*Job, bool, error) {
 	}
 
 	const insert = `
-		insert into analysis_jobs (user_id, dedup_key, cv, cv_filename, job_offer, job_title, max_attempts)
-		values ($1, $2, $3, $4, $5, $6, $7)
+		insert into analysis_jobs (user_id, dedup_key, cv, cv_filename, job_offer, job_title, max_attempts, traceparent)
+		values ($1, $2, $3, $4, $5, $6, $7, $8)
 		on conflict (dedup_key) where state in ('queued', 'running') do nothing
 		returning ` + pollColumns
 
 	row := s.pool.QueryRow(ctx, insert,
 		input.UserID, input.DedupKey, input.CV, input.CVFilename,
 		input.JobOffer, nullable(input.JobTitle), maxAttempts,
+		nullable(input.TraceParent),
 	)
 
 	job, err := scanJob(row)
@@ -63,7 +64,9 @@ func (s *Store) Enqueue(ctx context.Context, input NewJob) (*Job, bool, error) {
 	}
 
 	// The insert was skipped, so a live job already holds this key. Returning it
-	// is the whole point of the conflict clause.
+	// is the whole point of the conflict clause. The job keeps the trace of the
+	// request that created it rather than this one's: the work belongs to the
+	// first caller's trace, and this caller is joining it, not starting it.
 	const existing = `
 		select ` + pollColumns + `
 		from analysis_jobs
@@ -117,7 +120,7 @@ func (s *Store) Claim(ctx context.Context, staleAfter time.Duration) (*Job, erro
 			for update skip locked
 			limit 1
 		)
-		returning ` + pollColumns + `, cv`
+		returning ` + pollColumns + `, cv, coalesce(traceparent, '')`
 
 	var job Job
 	var title, errCode, errMessage *string
@@ -129,7 +132,7 @@ func (s *Store) Claim(ctx context.Context, staleAfter time.Duration) (*Job, erro
 		&job.CVFilename, &job.JobOffer, &title,
 		&result, &errCode, &errMessage,
 		&job.CreatedAt, &job.UpdatedAt, &job.FinishedAt,
-		&job.CV,
+		&job.CV, &job.TraceParent,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
