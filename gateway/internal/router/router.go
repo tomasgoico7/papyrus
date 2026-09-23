@@ -39,7 +39,10 @@ func New(
 		// request falls back to a random one. Spans are named by route template
 		// for the same reason the metrics are labelled that way: an id in the
 		// name makes every request its own operation.
-		otelgin.Middleware(observability.ServiceName, otelgin.WithSpanNameFormatter(spanName)),
+		otelgin.Middleware(observability.ServiceName,
+			otelgin.WithSpanNameFormatter(spanName),
+			otelgin.WithGinFilter(worthTracing),
+		),
 		middleware.RequestID(logger),
 		metrics.Middleware(),
 		middleware.CORS(cfg.AllowedOrigins),
@@ -84,4 +87,18 @@ func spanName(c *gin.Context) string {
 		route = "unmatched"
 	}
 	return c.Request.Method + " " + route
+}
+
+// worthTracing keeps the machinery out of the traces.
+//
+// A scrape every fifteen seconds and a platform health check every few produce
+// more spans than the traffic does, and they all look the same. Dropping them
+// here rather than at the backend also means not paying to ship them.
+func worthTracing(c *gin.Context) bool {
+	switch c.Request.URL.Path {
+	case "/health", "/metrics":
+		return false
+	default:
+		return true
+	}
 }

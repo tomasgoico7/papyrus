@@ -68,4 +68,10 @@ def configure_tracing(
         # Scraping is not a request anybody wants a trace of, and at one scrape
         # every fifteen seconds it would drown everything that matters.
         excluded_urls="/metrics,/health",
+        # The ASGI instrumentation otherwise emits a child span per send and
+        # receive event — three of them for a single response. They describe the
+        # protocol rather than the work, and on a trace whose point is showing
+        # where fifty-five seconds went they are noise between the reader and
+        # the answer.
+        exclude_spans=["send", "receive"],
     )

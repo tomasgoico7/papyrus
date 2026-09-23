@@ -114,6 +114,9 @@ services:
       # The OTLP endpoint both services export to. Published so a service run
       # outside compose — a `go run` while debugging — can reach it too.
       - "4318:4318"
+      # The query API. Grafana reaches it over the compose network either way;
+      # this is for asking Tempo things with curl.
+      - "3200:3200"
 
   prometheus:
     image: prom/prometheus:v3.1.0
