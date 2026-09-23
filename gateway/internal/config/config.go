@@ -47,6 +47,13 @@ type Config struct {
 	// outlive successes: they are the ones somebody wants to look at.
 	JobRetention time.Duration
 	DLQRetention time.Duration
+	// OTLPEndpoint turns tracing on. Empty means spans are not exported, which
+	// is the normal state for a local run and for a deployment that has not been
+	// pointed at a backend yet.
+	OTLPEndpoint string
+	// TraceSampleRatio is the share of traces recorded when nothing upstream has
+	// already decided. One means all of them.
+	TraceSampleRatio float64
 }
 
 func (c Config) IsProduction() bool {
@@ -86,6 +93,19 @@ func Load() (*Config, error) {
 	cacheLocalEntries, err := intWithDefault("CACHE_LOCAL_ENTRIES", 256)
 	if err != nil {
 		return nil, err
+	}
+
+	// The exporter reads its endpoint, headers and protocol from the standard
+	// OTEL_* variables on its own; this is read only to decide whether to build
+	// one at all.
+	otlpEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+
+	sampleRatio, err := floatWithDefault("TRACE_SAMPLE_RATIO", 1)
+	if err != nil {
+		return nil, err
+	}
+	if sampleRatio < 0 || sampleRatio > 1 {
+		return nil, fmt.Errorf("environment variable %q must be between 0 and 1, got %v", "TRACE_SAMPLE_RATIO", sampleRatio)
 	}
 
 	jobTimeoutSeconds, err := intWithDefault("JOB_TIMEOUT_SECONDS", 120)
@@ -128,6 +148,8 @@ func Load() (*Config, error) {
 		RunWorker:         boolWithDefault("RUN_WORKER", false),
 		WorkerConcurrency: workerConcurrency,
 		JobTimeout:        time.Duration(jobTimeoutSeconds) * time.Second,
+		OTLPEndpoint:      otlpEndpoint,
+		TraceSampleRatio:  sampleRatio,
 		JobRetention:      time.Duration(jobRetentionHours) * time.Hour,
 		DLQRetention:      time.Duration(dlqRetentionHours) * time.Hour,
 	}, nil
@@ -156,6 +178,18 @@ func intWithDefault(key string, fallback int) (int, error) {
 	value, err := strconv.Atoi(raw)
 	if err != nil {
 		return 0, fmt.Errorf("environment variable %q must be an integer: %w", key, err)
+	}
+	return value, nil
+}
+
+func floatWithDefault(key string, fallback float64) (float64, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("environment variable %q must be a number: %w", key, err)
 	}
 	return value, nil
 }

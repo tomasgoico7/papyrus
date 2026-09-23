@@ -53,6 +53,19 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	tracing, err := observability.NewTracing(ctx, cfg.OTLPEndpoint, cfg.Environment, cfg.TraceSampleRatio, logger)
+	if err != nil {
+		return fmt.Errorf("setting up tracing: %w", err)
+	}
+	defer func() {
+		// Detached from ctx on purpose: by the time this runs the signal has
+		// already cancelled it, and flushing through a cancelled context throws
+		// away exactly the spans from the shutdown worth looking at.
+		if err := tracing.Shutdown(context.WithoutCancel(ctx)); err != nil {
+			logger.Warn("flushing traces on shutdown failed", slog.Any("error", err))
+		}
+	}()
+
 	pool, err := app.Pool(ctx, cfg)
 	if err != nil {
 		return err

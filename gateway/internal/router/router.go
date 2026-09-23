@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/papyrus/gateway/internal/app"
 	"github.com/papyrus/gateway/internal/auth"
@@ -33,6 +34,12 @@ func New(
 	engine.MaxMultipartMemory = cfg.MaxUploadBytes
 	engine.Use(
 		gin.Recovery(),
+		// Order matters here. The span has to exist before RequestID runs, or
+		// there is no trace for it to adopt as the correlation id and every
+		// request falls back to a random one. Spans are named by route template
+		// for the same reason the metrics are labelled that way: an id in the
+		// name makes every request its own operation.
+		otelgin.Middleware(observability.ServiceName, otelgin.WithSpanNameFormatter(spanName)),
 		middleware.RequestID(logger),
 		metrics.Middleware(),
 		middleware.CORS(cfg.AllowedOrigins),
@@ -65,4 +72,16 @@ func New(
 	}
 
 	return engine
+}
+
+// spanName labels a span by the route it matched rather than the path it asked
+// for, so /analyses/:id is one operation instead of one per job.
+func spanName(c *gin.Context) string {
+	route := c.FullPath()
+	if route == "" {
+		// Nothing matched. Grouping these together keeps a scanner probing for
+		// admin panels from filling the trace list with one-off operation names.
+		route = "unmatched"
+	}
+	return c.Request.Method + " " + route
 }
