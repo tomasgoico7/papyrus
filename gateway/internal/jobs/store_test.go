@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -87,9 +89,17 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// applySchema runs the real migration, not a hand-written copy of it: a test
+// applySchema runs the real migrations, not a hand-written copy of them: a test
 // schema that drifts from the deployed one tests the wrong thing. Only
 // `auth.users`, which Supabase provides, is stubbed.
+//
+// The migrations are discovered rather than named. Naming one meant that adding
+// a column to the queue left every test in this file failing against a schema
+// from before it — which is the drift the paragraph above warns about, arrived
+// at by hand. Anything touching this table is picked up now; the migrations that
+// do not are skipped, because they reach into Supabase's storage schema and
+// stubbing that would be a lot of scaffolding for a table these tests never
+// read.
 func applySchema(ctx context.Context) error {
 	const authStub = `
 		create schema if not exists auth;
@@ -99,12 +109,30 @@ func applySchema(ctx context.Context) error {
 		return fmt.Errorf("auth stub: %w", err)
 	}
 
-	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "supabase", "migrations", "0006_analysis_jobs.sql"))
+	dir := filepath.Join("..", "..", "..", "supabase", "migrations")
+	files, err := filepath.Glob(filepath.Join(dir, "*.sql"))
 	if err != nil {
-		return fmt.Errorf("reading migration: %w", err)
+		return fmt.Errorf("listing migrations: %w", err)
 	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		return fmt.Errorf("running migration: %w", err)
+	// Zero-padded names, so lexical order is the order they were written in.
+	sort.Strings(files)
+
+	applied := 0
+	for _, file := range files {
+		migration, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", filepath.Base(file), err)
+		}
+		if !strings.Contains(string(migration), "analysis_jobs") {
+			continue
+		}
+		if _, err := pool.Exec(ctx, string(migration)); err != nil {
+			return fmt.Errorf("running %s: %w", filepath.Base(file), err)
+		}
+		applied++
+	}
+	if applied == 0 {
+		return fmt.Errorf("no migrations for analysis_jobs found in %s", dir)
 	}
 
 	for _, id := range []string{testerA, testerB} {
