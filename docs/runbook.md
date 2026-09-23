@@ -191,6 +191,58 @@ possible moment.
 
 ---
 
+## A job says `worker_lost`
+
+The process holding it died between claiming the work and recording what
+happened — a deploy, an eviction, a crash. It had no attempts left, so nothing
+would ever pick it up again, and a sweep closed it rather than leaving it
+running forever.
+
+One or two after a deploy is the mechanism working. A steady trickle without
+deploys means something is killing the process: check memory first.
+
+The job keeps its upload, so it can be requeued like any other dead letter.
+
+Two rules keep these bounded, and they have to agree with each other:
+
+- A stale `running` job is only reclaimed while `attempts < max_attempts`.
+  Without that ceiling a job whose worker keeps dying is handed out forever;
+  one reached seven attempts against a limit of three that way.
+- A stale `running` job with no attempts left is closed by the sweep, at the
+  same threshold. If the two thresholds ever differ, a job can be both too old
+  to retry and too young to close, which is how rows go missing from both paths.
+
+`ClaimStaleAfter` is derived rather than configured, for the same reason:
+reclaiming a job whose worker is only slow runs the analysis twice, so it has to
+clear the longest an attempt can legitimately take — `JOB_TIMEOUT_SECONDS`, plus
+the wait for a sleeping upstream, plus the bookkeeping budget — with room to
+spare. Raising any one of those raises it automatically.
+
+This does mean recovery is slower than a person's patience: the browser stops
+polling after four minutes, and a job abandoned by a dead worker is not closed
+for closer to eight. That ordering is deliberate. Running an analysis twice
+costs a model call and can return two different answers; making somebody wait
+and check their history costs neither. Re-submitting meanwhile joins the job
+that is already live rather than starting a second one.
+
+---
+
+## Is the rate limit actually shared?
+
+```
+curl -s https://papyrus-gateway.onrender.com/metrics | grep rate_limit_shared
+```
+
+`1` means a shared backend is configured, `0` means this process is counting on
+its own and the budget is per replica.
+
+The degraded counter does not answer this. It only moves when a backend that
+*was* configured fails, so a deployment that was never given `REDIS_URL` looks
+exactly like a healthy shared one: no errors, no degraded line, and a limit that
+silently means N times what it says.
+
+---
+
 ## The rate limit stopped being shared
 
 A rising `degraded` line on *Rate limit decisions*, or
