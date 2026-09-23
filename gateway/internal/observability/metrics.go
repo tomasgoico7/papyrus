@@ -35,7 +35,8 @@ type Metrics struct {
 	jobsRunning   prometheus.Gauge
 	jobsDead      prometheus.Gauge
 
-	rateLimits *prometheus.CounterVec
+	rateLimits      *prometheus.CounterVec
+	rateLimitShared prometheus.Gauge
 }
 
 func NewMetrics() *Metrics {
@@ -114,6 +115,12 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		rateLimitShared: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "rate_limit_shared",
+				Help: "1 when the limiter has a shared backend configured, 0 when it counts alone.",
+			},
+		),
 	}
 
 	m.registry.MustRegister(
@@ -128,6 +135,7 @@ func NewMetrics() *Metrics {
 		m.jobsRunning,
 		m.jobsDead,
 		m.rateLimits,
+		m.rateLimitShared,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -233,4 +241,19 @@ func (m *Metrics) SetQueueDepth(queued, running, dead int) {
 // is the kind of thing that is invisible until somebody is counting it.
 func (m *Metrics) RecordRateLimit(outcome string) {
 	m.rateLimits.WithLabelValues(outcome).Inc()
+}
+
+// SetRateLimitShared records whether a shared backend was configured at all.
+//
+// The degraded counter only moves when a configured backend fails, so a
+// deployment that was never given one looks identical to a healthy shared
+// deployment: no degraded line, no error, and a budget that is quietly per
+// replica. This is the difference between the two, and it is a gauge rather
+// than a log line because the question is asked long after startup.
+func (m *Metrics) SetRateLimitShared(shared bool) {
+	value := 0.0
+	if shared {
+		value = 1
+	}
+	m.rateLimitShared.Set(value)
 }

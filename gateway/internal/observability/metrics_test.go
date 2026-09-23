@@ -108,3 +108,21 @@ func TestMetricsCoverTheLatencyOfASlowAnalysis(t *testing.T) {
 		}
 	}
 }
+
+func TestRateLimitSharedIsAlwaysReported(t *testing.T) {
+	// The gauge has to be present even when nothing is shared. An absent series
+	// is indistinguishable from a build too old to have it, which is exactly the
+	// confusion it exists to end.
+	for _, shared := range []bool{false, true} {
+		engine, metrics := metricsEngine()
+		metrics.SetRateLimitShared(shared)
+
+		want := "rate_limit_shared 0"
+		if shared {
+			want = "rate_limit_shared 1"
+		}
+		if body := scrape(t, engine, metrics); !strings.Contains(body, want) {
+			t.Errorf("scrape for shared=%v does not contain %q", shared, want)
+		}
+	}
+}

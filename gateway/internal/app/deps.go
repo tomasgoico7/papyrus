@@ -175,12 +175,14 @@ func RateLimiter(
 
 	if cfg.RedisURL == "" {
 		logger.Info("rate limiting is per process", slog.Int("rpm", cfg.RateLimitRPM))
+		metrics.SetRateLimitShared(false)
 		return ratelimit.NewFallback(nil, local, metrics, logger)
 	}
 
 	shared, err := ratelimit.NewShared(cfg.RedisURL, cfg.RateLimitRPM, redisTimeout)
 	if err != nil {
 		logger.Warn("rate limiting is per process: redis unavailable", slog.Any("error", err))
+		metrics.SetRateLimitShared(false)
 		return ratelimit.NewFallback(nil, local, metrics, logger)
 	}
 
@@ -193,6 +195,7 @@ func RateLimiter(
 	}
 
 	logger.Info("rate limiting is shared across replicas", slog.Int("rpm", cfg.RateLimitRPM))
+	metrics.SetRateLimitShared(true)
 	return ratelimit.NewFallback(shared, local, metrics, logger)
 }
 
