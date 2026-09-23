@@ -376,14 +376,54 @@ Two details that matter:
 buys. Even so, a serious deployment would put it on a separate internal port rather
 than the public one.
 
+### Distributed tracing
+
+An id lets you *find* the logs for an analysis. It does not tell you where the 55
+seconds went. Both services emit OpenTelemetry traces over OTLP for that.
+
+**The queue is the interesting part.** The request that enqueues finishes in
+under a second; the work happens later, in another process, possibly after two
+retries spread over two minutes. With nothing crossing that gap they are four
+unrelated things. The job row stores the `traceparent` of whoever enqueued it,
+and the worker resumes that trace instead of starting its own:
+
+```
+POST /analyses                    628 ms
+  └─ queue wait                     27 s        ← the gap, now visible
+     └─ analysis job (attempt 1)    31 s
+        └─ POST /analyze → ai-service
+           └─ model call
+```
+
+Four decisions that make it useful:
+
+- **The worker's span is a child of the enqueueing one, not a link.** The
+  messaging conventions suggest a link when the consumer may run far later. The
+  question here is "where did the 55 seconds go", and a parent-child waterfall
+  answers it directly while a link asks you to open two traces and compare them.
+- **Sampling is parent-based everywhere.** Once a trace is being recorded, every
+  service records. Deciding separately produces traces with holes, which are
+  worse than none because they look complete. The decision crosses the queue
+  with the header.
+- **The trace id is the correlation id** when the caller supplies none. The two
+  were always the same width — `requestid.New()` was written with this day in
+  mind. One number that finds the logs *and* the trace beats two that each find
+  half.
+- **Tracing off is the same code path with a sampler that records nothing**, not
+  a branch around it. A second configuration that only runs when nobody is
+  looking is one nobody tests. A job enqueued with no trace runs the same.
+
 ### Dashboards
 
 ```bash
-docker compose --profile observability up
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318   docker compose --profile observability up --build
 ```
 
 Grafana lands on http://localhost:3001 (no login, it is local) with the RED dashboard
-already provisioned; Prometheus on http://localhost:9090.
+and the Tempo datasource already provisioned; Prometheus on http://localhost:9090.
+In production the same two variables (`OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_HEADERS`) point at a hosted backend — free tier, like
+everything else.
 
 ### Caching
 

@@ -167,6 +167,51 @@ an option while a browser held the request open; polling a job makes it one.
 
 ---
 
+## Where did the time go?
+
+Find the trace. Every log line of a traced request carries `trace_id`, and for a
+request that did not arrive with an `X-Request-ID` of its own the correlation id
+*is* the trace id — so the id in a log line, in the response header, or in the
+browser's network tab is what to search for.
+
+One analysis is one trace from the click to the model call, the queue included:
+the job row carries the `traceparent`, so the worker continues the request's
+trace rather than starting its own. Retries are in there too. What to read off
+it:
+
+- **`job.age_seconds`** on the attempt span — how long the person had been
+  waiting when this attempt started. On a retry it covers the earlier ones.
+- **The gap before the attempt span** — queue wait. A large one with an empty
+  queue means no worker was claiming.
+- **The span for the call to the AI service** — nearly all of a healthy
+  analysis. If the total is long and this is short, the time went somewhere
+  else and the trace says where.
+
+A job with no trace shows up as a trace containing only the attempt. That is a
+job enqueued before the column existed, or while tracing was off. It is not a
+fault.
+
+Locally:
+
+```
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318 docker compose --profile observability up --build
+```
+
+Grafana is on :3001, and the Tempo datasource is already provisioned. There is
+no span-to-logs link because the local stack has no log backend — read those
+with `docker compose logs` and grep the `trace_id`.
+
+In production the same two variables point at a hosted backend instead:
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` for its
+credentials. Both services read them; neither needs anything else.
+
+**Tracing off is the normal state of a deployment nobody has configured.** No
+endpoint means no export, and everything else behaves identically — including
+reading an inbound `traceparent` and passing it on, so a service with tracing
+off does not put a hole in anybody else's trace.
+
+---
+
 ## Which build is running
 
 Before diagnosing anything else, check that the fix you are reasoning about is

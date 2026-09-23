@@ -377,14 +377,55 @@ Dos detalles que importan:
 disciplina de cardinalidad. Aun así, en un deploy serio iría en un puerto interno
 separado y no en el público.
 
+### Trazas distribuidas
+
+Un id te deja *encontrar* los logs de un análisis. No te dice dónde se fueron los
+55 segundos. Para eso los dos servicios emiten trazas OpenTelemetry por OTLP.
+
+Lo interesante es **la cola**. Un request que encola termina en menos de un
+segundo; el trabajo pasa después, en otro proceso, quizás tras dos reintentos
+repartidos en dos minutos. Sin nada que cruce ese hueco son cuatro cosas
+inconexas. La fila del job guarda el `traceparent` de quien la encoló, y el
+worker retoma ese trace en vez de empezar uno propio:
+
+```
+POST /analyses                    628 ms
+  └─ espera en cola                 27 s        ← el hueco, ahora visible
+     └─ analysis job (intento 1)    31 s
+        └─ POST /analyze → ai-service
+           └─ llamada al modelo
+```
+
+Cuatro decisiones que hacen que esto sirva:
+
+- **El span del worker es hijo del que encoló, no un link.** Las convenciones de
+  messaging sugieren un link cuando el consumidor corre mucho después. Acá la
+  pregunta es "dónde se fueron los 55 segundos", y una cascada padre-hijo la
+  contesta directo mientras que un link te hace abrir dos trazas y compararlas.
+- **El sampling es parent-based en todos lados.** Si una traza se está
+  registrando, todos los servicios la registran. Decidir por separado produce
+  trazas con agujeros, que son peores que ninguna porque parecen completas. La
+  decisión de sampleo cruza la cola con el header.
+- **El trace id es el correlation id** cuando el cliente no manda uno propio. Los
+  dos siempre midieron lo mismo — `requestid.New()` se escribió con este día en
+  mente. Un número que encuentra los logs *y* la traza vale más que dos que
+  encuentran la mitad cada uno.
+- **Tracing apagado es el mismo código con un sampler que no registra nada**, no
+  una rama que lo esquiva. Una segunda configuración que sólo corre cuando nadie
+  mira es una configuración que nadie prueba. Un job encolado sin traza corre
+  igual.
+
 ### Dashboards
 
 ```bash
-docker compose --profile observability up
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318   docker compose --profile observability up --build
 ```
 
 Grafana queda en http://localhost:3001 (sin login, es local) con el dashboard RED
-ya aprovisionado; Prometheus en http://localhost:9090.
+y el datasource de Tempo ya aprovisionados; Prometheus en http://localhost:9090.
+En producción las mismas dos variables (`OTEL_EXPORTER_OTLP_ENDPOINT` y
+`OTEL_EXPORTER_OTLP_HEADERS`) apuntan a un backend hosteado — free tier, como
+todo el resto.
 
 ### Caché
 
