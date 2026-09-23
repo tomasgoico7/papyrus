@@ -79,6 +79,7 @@ export interface Dictionary {
       upstreamUnavailable: string;
       upstreamRateLimited: string;
       stillRunning: string;
+      workerLost: string;
       queueUnavailable: string;
       rateLimited: string;
       aiServiceError: string;
@@ -252,6 +253,8 @@ const en: Dictionary = {
         "This is taking longer than expected. It is still running — try again in a moment and the result will be waiting.",
       queueUnavailable:
         "The analysis could not be queued right now. Please try again in a moment.",
+      workerLost:
+        "The analysis was interrupted before it finished. Run it again — this usually works on the next try.",
       rateLimited: "Too many analyses in a short time. Wait a moment and try again.",
       aiServiceError:
         "The analysis service answered unexpectedly. Please try again in a moment.",
@@ -430,6 +433,8 @@ const es: Dictionary = {
         "Está tardando más de lo esperado. Sigue corriendo — probá de nuevo en un momento y el resultado va a estar listo.",
       queueUnavailable:
         "No pudimos encolar el análisis en este momento. Probá de nuevo en un rato.",
+      workerLost:
+        "El análisis se interrumpió antes de terminar. Probá de nuevo — normalmente sale en el siguiente intento.",
       rateLimited: "Demasiados análisis en poco tiempo. Esperá un momento y probá de nuevo.",
       aiServiceError:
         "El servicio de análisis respondió de forma inesperada. Probá de nuevo en un momento.",

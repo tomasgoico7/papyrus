@@ -91,6 +91,10 @@ const ERROR_CODE_KEYS: Record<string, keyof Dictionary["result"]["errors"]> = {
   upstream_rate_limited: "upstreamRateLimited",
   still_running: "stillRunning",
   queue_unavailable: "queueUnavailable",
+  // A worker died mid-analysis and the job ran out of attempts. Retrying is
+  // the right move and usually works, so it must not fall through to the
+  // generic message the way an unmapped code would.
+  worker_lost: "workerLost",
   rate_limited: "rateLimited",
   // The gateway sends this when the AI service answers with something that is
   // not our error envelope — a proxy page, usually. Without it here the user
