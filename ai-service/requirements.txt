@@ -8,3 +8,6 @@ langchain-core==0.3.86
 langchain-google-genai==2.0.11
 structlog==25.5.0
 prometheus-client==0.24.1
+opentelemetry-sdk==1.40.0
+opentelemetry-exporter-otlp-proto-http==1.40.0
+opentelemetry-instrumentation-fastapi==0.61b0

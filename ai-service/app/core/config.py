@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     max_cv_chars: int = 20_000
     internal_api_key: str = ""  # empty disables auth check (local dev)
+    # Setting an endpoint is what turns tracing on. The exporter reads its own
+    # headers and protocol from the other standard OTEL_* variables, which is
+    # what a backend's setup instructions hand you.
+    otel_exporter_otlp_endpoint: str = ""
+    # Share of traces recorded when nothing upstream has already decided. In
+    # practice the gateway decides first and this rarely applies.
+    trace_sample_ratio: float = 1.0
 
     @property
     def is_production(self) -> bool:

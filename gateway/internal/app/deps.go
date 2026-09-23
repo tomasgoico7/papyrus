@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/papyrus/gateway/internal/cache"
 	"github.com/papyrus/gateway/internal/config"
@@ -117,7 +118,12 @@ func UpstreamClient(requestTimeout time.Duration) *http.Client {
 	transport.IdleConnTimeout = 90 * time.Second
 
 	return &http.Client{
-		Transport: transport,
+		// Wrapped at the transport rather than at each call site, so a request
+		// cannot be made through this client without carrying the trace. This
+		// is also what puts the traceparent header on the wire: the AI service
+		// is a separate process, and without it the model call shows up as time
+		// the gateway spent doing nothing.
+		Transport: otelhttp.NewTransport(transport),
 		Timeout:   requestTimeout + 5*time.Second,
 	}
 }

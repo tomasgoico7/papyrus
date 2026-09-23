@@ -1,6 +1,7 @@
 import time
 
 import structlog
+from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -29,11 +30,26 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
-        correlation_id = (
-            request_id.sanitize(request.headers.get(request_id.HEADER)) or request_id.new()
-        )
+        span = trace.get_current_span().get_span_context()
+        traced = span.is_valid
+
+        # The gateway's rules, mirrored: an inbound id wins because the caller is
+        # already correlating on it, and otherwise the trace is the id. The two
+        # are the same width for exactly this reason, and one number that finds
+        # both the logs and the trace beats two that each find half.
+        correlation_id = request_id.sanitize(request.headers.get(request_id.HEADER))
+        if not correlation_id:
+            correlation_id = format(span.trace_id, "032x") if traced else request_id.new()
+
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=correlation_id)
+        if traced:
+            # Bound even when it equals the request id: a log aggregator links to
+            # the tracing backend by field name, not by what the value looks like.
+            structlog.contextvars.bind_contextvars(
+                trace_id=format(span.trace_id, "032x"),
+                span_id=format(span.span_id, "016x"),
+            )
 
         path = request.url.path
         if path == METRICS_PATH:

@@ -9,6 +9,7 @@ from app.api.routes import router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.metrics import Metrics
+from app.core.tracing import configure_tracing
 from app.services.analyzer import CVAnalyzer
 from app.services.tailor import CVTailor
 
@@ -50,6 +51,16 @@ def create_app() -> FastAPI:
         ObservabilityMiddleware,
         metrics=metrics,
         routes=_registered_paths(app),
+    )
+
+    # Last, so it wraps the middleware above: the span has to exist before that
+    # one runs or there is no trace id for it to put on the log lines.
+    configure_tracing(
+        app,
+        endpoint=settings.otel_exporter_otlp_endpoint,
+        environment=settings.environment,
+        version=app.version,
+        sample_ratio=settings.trace_sample_ratio,
     )
     return app
 
