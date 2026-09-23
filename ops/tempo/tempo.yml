@@ -1,0 +1,59 @@
+# Tempo, single binary, local only.
+#
+# Everything lives on local disk and nothing is replicated: this exists so a
+# trace can be looked at during development, not to survive anything. Production
+# points at a hosted backend instead, which is the same OTLP endpoint with
+# different credentials.
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        # HTTP only. It is what both services export over, it passes through
+        # anything that understands a proxy, and running gRPC as well would mean
+        # a second port to keep straight for no gain.
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  # Short, so a trace shows up while the thing that produced it is still fresh
+  # in mind. The cost is a flush per five seconds of idling, which on one
+  # developer's traffic is nothing.
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # A week is longer than any local investigation and short enough that the
+    # volume never has to be thought about.
+    block_retention: 168h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# Turn a trace into RED metrics without instrumenting anything twice. The spans
+# already carry the service, the route and the status; this counts them, which
+# is what makes the service graph in Grafana work.
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  traces_storage:
+    path: /var/tempo/generator/traces
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

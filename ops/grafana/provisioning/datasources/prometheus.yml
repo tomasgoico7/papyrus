@@ -5,5 +5,26 @@ datasources:
     type: prometheus
     access: proxy
     url: http://prometheus:9090
+    uid: prometheus
     isDefault: true
     editable: false
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    uid: tempo
+    editable: false
+    jsonData:
+      # Tempo turns spans into RED metrics and service graphs and writes them to
+      # Prometheus; these point the trace view back at them, so a slow span can
+      # be put next to how that operation usually behaves.
+      #
+      # There is no span-to-logs link because there is no log backend here: the
+      # local stack has no Loki, and logs are read with `docker compose logs`.
+      # Every line carries trace_id, so searching for one still works — it is
+      # just not a click from the span.
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

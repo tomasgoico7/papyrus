@@ -11,6 +11,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       MAX_CV_CHARS: ${MAX_CV_CHARS:-20000}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      TRACE_SAMPLE_RATIO: ${TRACE_SAMPLE_RATIO:-1}
     ports:
       - "8000:8000"
     healthcheck:
@@ -38,6 +40,8 @@ services:
       CACHE_TTL_HOURS: ${CACHE_TTL_HOURS:-168}
       CACHE_LOCAL_ENTRIES: ${CACHE_LOCAL_ENTRIES:-256}
       DATABASE_URL: ${DATABASE_URL:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      TRACE_SAMPLE_RATIO: ${TRACE_SAMPLE_RATIO:-1}
       RUN_WORKER: ${RUN_WORKER:-false}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       JOB_RETENTION_HOURS: ${JOB_RETENTION_HOURS:-24}
@@ -90,13 +94,36 @@ services:
 
   # ── Observability ────────────────────────────────────────────────────────────
   # Behind a profile so the everyday `docker compose up` still starts three
-  # containers. Bring it up with `docker compose --profile observability up`.
+  # containers:
+  #
+  #   OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318   #     docker compose --profile observability up --build
+  #
+  # The endpoint is passed rather than defaulted: it is what switches tracing on,
+  # and a default pointing at Tempo would make every ordinary `docker compose up`
+  # — which has no Tempo in it — retry a connection nothing is going to answer.
+  #
+  # Grafana is on :3001, Prometheus on :9090, Tempo's query API on :3200.
+  tempo:
+    image: grafana/tempo:2.7.1
+    profiles: [observability]
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./ops/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      # The OTLP endpoint both services export to. Published so a service run
+      # outside compose — a `go run` while debugging — can reach it too.
+      - "4318:4318"
+
   prometheus:
     image: prom/prometheus:v3.1.0
     profiles: [observability]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=7d
+      # Tempo turns spans into RED metrics and writes them here, which needs the
+      # receiving end switched on explicitly.
+      - --web.enable-remote-write-receiver
     volumes:
       - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -120,6 +147,7 @@ services:
       - "3001:3000"
     depends_on:
       - prometheus
+      - tempo
 
   # ── Two replicas ─────────────────────────────────────────────────────────────
   # The point of a shared rate limiter is only visible with more than one
@@ -211,3 +239,4 @@ volumes:
   redis-data:
   prometheus-data:
   grafana-data:
+  tempo-data:
