@@ -141,9 +141,19 @@ func UpstreamClient(requestTimeout time.Duration) *http.Client {
 		// is also what puts the traceparent header on the wire: the AI service
 		// is a separate process, and without it the model call shows up as time
 		// the gateway spent doing nothing.
-		Transport: otelhttp.NewTransport(transport),
+		Transport: otelhttp.NewTransport(transport, otelhttp.WithSpanNameFormatter(upstreamSpanName)),
 		Timeout:   requestTimeout + 5*time.Second,
 	}
+}
+
+// upstreamSpanName names an outbound span by the path it calls. The default is
+// just the method, so a trace showed "HTTP GET" taking twenty three seconds and
+// left the reader to guess which of the AI service's endpoints it was. Naming by
+// path is safe here in a way it would not be for inbound traffic: the gateway
+// only ever calls a handful of fixed routes, so there is no id in the path to
+// turn every call into its own operation.
+func upstreamSpanName(_ string, r *http.Request) string {
+	return r.Method + " " + r.URL.Path
 }
 
 // Pool opens the connection pool for the job queue.

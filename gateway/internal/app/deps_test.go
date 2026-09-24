@@ -1,8 +1,14 @@
 package app_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/papyrus/gateway/internal/app"
 	"github.com/papyrus/gateway/internal/config"
@@ -48,5 +54,35 @@ func TestUpstreamBudgetClearsEveryCallersDeadline(t *testing.T) {
 				t.Errorf("client timeout %v does not clear the budget %v", client.Timeout, budget)
 			}
 		})
+	}
+}
+
+func TestOutboundSpansAreNamedByTheEndpointTheyCall(t *testing.T) {
+	// A trace that says "HTTP GET took twenty three seconds" makes the reader
+	// guess which endpoint it was. The name should answer that on its own.
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { otel.SetTracerProvider(previous) })
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	client := app.UpstreamClient(5 * time.Second)
+	resp, err := client.Get(upstream.URL + "/version")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	resp.Body.Close()
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("recorded %d spans, want 1", len(spans))
+	}
+	if got := spans[0].Name(); got != "GET /version" {
+		t.Errorf("span name = %q, want the method and the path", got)
 	}
 }
