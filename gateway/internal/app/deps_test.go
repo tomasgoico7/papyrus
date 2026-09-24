@@ -1,6 +1,11 @@
 package app_test
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +17,9 @@ import (
 
 	"github.com/papyrus/gateway/internal/app"
 	"github.com/papyrus/gateway/internal/config"
+	"github.com/papyrus/gateway/internal/observability"
+	"github.com/papyrus/gateway/internal/services"
+	"github.com/papyrus/gateway/internal/transport"
 )
 
 // TestUpstreamBudgetClearsEveryCallersDeadline is the guard on a coupling that
@@ -84,5 +92,59 @@ func TestOutboundSpansAreNamedByTheEndpointTheyCall(t *testing.T) {
 	}
 	if got := spans[0].Name(); got != "GET /version" {
 		t.Errorf("span name = %q, want the method and the path", got)
+	}
+}
+
+// TestAWorkerCanWaitLongerThanTheRequestPath checks the wiring rather than any
+// one component, because that is where this broke. Every piece was right on its
+// own: the worker set a four minute deadline, the HTTP client allowed it, and
+// the cache honoured whatever timeout it was handed. It was handed the request
+// timeout, so every worker attempt died at two minutes regardless.
+func TestAWorkerCanWaitLongerThanTheRequestPath(t *testing.T) {
+	aiService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/version":
+			_, _ = w.Write([]byte(`{"promptVersion":"v1","model":"gemini-test"}`))
+		case "/analyze":
+			// Longer than the request path may wait, well inside the job's budget.
+			time.Sleep(300 * time.Millisecond)
+			_ = json.NewEncoder(w).Encode(transport.Analysis{
+				Score:         70,
+				Verdict:       "moderate",
+				Summary:       transport.Localized{En: "ok", Es: "ok"},
+				MatchedSkills: transport.LocalizedList{En: []string{}, Es: []string{}},
+				MissingSkills: transport.LocalizedList{En: []string{}, Es: []string{}},
+				Suggestions:   []transport.Suggestion{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer aiService.Close()
+
+	cfg := &config.Config{
+		AIServiceURL:      aiService.URL,
+		RequestTimeout:    100 * time.Millisecond,
+		JobTimeout:        2 * time.Second,
+		CacheTTL:          time.Hour,
+		CacheLocalEntries: 8,
+	}
+	analyzer := app.Analyzer(cfg, app.UpstreamClient(app.UpstreamBudget(cfg)),
+		observability.NewMetrics(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// The worker's deadline, not the request path's.
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.JobTimeout)
+	defer cancel()
+
+	analysis, err := analyzer.Analyze(ctx, services.AnalyzeRequest{
+		CV:       bytes.NewReader([]byte("%PDF-1.4 cv")),
+		Filename: "cv.pdf",
+		JobOffer: "A backend role.",
+	})
+	if err != nil {
+		t.Fatalf("a call inside the job's budget failed: %v — something is still sized for the request path", err)
+	}
+	if analysis.Score != 70 {
+		t.Errorf("score = %d, want the upstream's answer", analysis.Score)
 	}
 }

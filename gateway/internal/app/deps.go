@@ -69,7 +69,13 @@ func Analyzer(
 		services.NewVersionClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream, versionTTL),
 		metrics,
 		cfg.CacheTTL,
-		cfg.RequestTimeout,
+		// The shared call is detached from whoever started it and serves both
+		// the request path and the worker; each of them bounds its own wait with
+		// its own context. So the work itself has to be allowed to run as long
+		// as the longest of them needs. Sizing it for the request path capped
+		// every worker attempt at two minutes while JOB_TIMEOUT_SECONDS said
+		// four — the third place the same coupling came apart.
+		UpstreamBudget(cfg),
 	)
 }
 

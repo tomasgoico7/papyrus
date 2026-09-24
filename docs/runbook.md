@@ -156,12 +156,18 @@ curl -s -o /dev/null -w '%{http_code} %{time_total}s
 Run that against an instance that has been idle for twenty minutes or more; a
 warm one answers in under a second and tells you nothing.
 
-One HTTP client serves the request path, the worker and the probe, and its own
-timeout applies to all three — so raising any one deadline without raising the
-client's makes that deadline do nothing. `app.UpstreamBudget` takes the largest
-of them and a test holds the three together; a job that dies at sixty-five
-seconds with `upstream_timeout` while `JOB_TIMEOUT_SECONDS` says a hundred and
-twenty is that coupling coming apart again.
+Two things sit between a worker and the AI service, and each has a timeout of
+its own that applies whatever the worker's deadline says: the shared HTTP
+client, and the cache's shared call, which runs detached from whoever started it
+so that others waiting on the same analysis keep their answer. Both are sized
+from `app.UpstreamBudget`, the largest deadline any caller sets. Sizing either
+for the request path makes `JOB_TIMEOUT_SECONDS` configuration that does
+nothing — which happened twice, the second time capping every attempt at
+`REQUEST_TIMEOUT_SECONDS` with the job timeout set to twice that.
+
+The tell is an attempt that dies at a round number matching the *request*
+timeout rather than the job timeout. The trace shows it directly: the attempt
+span and the `POST /analyze` under it end together, at that number.
 
 The numbers are not environment variables. They are the defaults in
 `Config.withDefaults` in `gateway/internal/worker/worker.go` and
