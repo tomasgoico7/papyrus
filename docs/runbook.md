@@ -194,6 +194,14 @@ it:
   analysis. If the total is long and this is short, the time went somewhere
   else and the trace says where.
 
+**`POST /analyses` itself is slow.** It should answer in well under a second
+whatever state the AI service is in, because all it does is write a row. If the
+trace shows it taking seconds, look for a `GET /version` span under it: the
+request path fetches the prompt version for the cache key, and is allowed to
+wait for it for two seconds at most before queueing without one. A request that
+waits longer than that means the budget is not being applied — which is how the
+first production trace caught it taking twenty four seconds on a cold start.
+
 A job with no trace shows up as a trace containing only the attempt. That is a
 job enqueued before the column existed, or while tracing was off. It is not a
 fault.

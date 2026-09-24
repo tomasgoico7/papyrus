@@ -386,15 +386,36 @@ Lo interesante es **la cola**. Un request que encola termina en menos de un
 segundo; el trabajo pasa después, en otro proceso, quizás tras dos reintentos
 repartidos en dos minutos. Sin nada que cruce ese hueco son cuatro cosas
 inconexas. La fila del job guarda el `traceparent` de quien la encoló, y el
-worker retoma ese trace en vez de empezar uno propio:
+worker retoma ese trace en vez de empezar uno propio.
+
+La primera traza real en producción encontró un bug de un vistazo:
 
 ```
-POST /analyses                    628 ms
-  └─ espera en cola                 27 s        ← el hueco, ahora visible
-     └─ analysis job (intento 1)    31 s
-        └─ POST /analyze → ai-service
-           └─ llamada al modelo
+POST /analyses              23.92 s   ← tenía que devolver en menos de un segundo
+  └─ HTTP GET               23.08 s   ← /version, esperando al AI service dormido
+analysis job  (intento 1)    2 m      ← cortado por el timeout del job
+  └─ HTTP POST               2 m
+analysis job  (intento 2)   36.46 s
+  └─ HTTP POST              36.29 s
+analysis job  (intento 3)    3.54 s   ← el AI service redeployando
+  └─ HTTP POST               3.37 s
 ```
+
+El endpoint asíncrono existía para no depender del AI service, y el camino de
+encolado dependía de él de forma sincrónica: antes de escribir la fila traía la
+versión del prompt para armar la clave del cache, y con el servicio dormido esa
+llamada esperaba el arranque en frío entero. Los 628 ms que había medido eran
+con el servicio despierto.
+
+El arreglo separa cuánto espera el que llama de cuánto dura el trabajo. El
+request espera la versión como mucho dos segundos y, si no llega, encola sin
+clave de cache; el fetch sigue en segundo plano y despierta al servicio para el
+worker, en vez de cancelarse a mitad del arranque. El worker sí espera la versión
+fresca, porque es el que escribe en el cache: guardar con una versión vieja
+archivaría la respuesta del prompt nuevo bajo la clave del viejo.
+
+Ninguna deducción a partir de timestamps había llegado a esto en una semana de
+diagnóstico. La traza lo mostró en la primera mirada.
 
 Cuatro decisiones que hacen que esto sirva:
 

@@ -385,15 +385,37 @@ seconds went. Both services emit OpenTelemetry traces over OTLP for that.
 under a second; the work happens later, in another process, possibly after two
 retries spread over two minutes. With nothing crossing that gap they are four
 unrelated things. The job row stores the `traceparent` of whoever enqueued it,
-and the worker resumes that trace instead of starting its own:
+and the worker resumes that trace instead of starting its own.
+
+The first real trace in production found a bug at a glance:
 
 ```
-POST /analyses                    628 ms
-  └─ queue wait                     27 s        ← the gap, now visible
-     └─ analysis job (attempt 1)    31 s
-        └─ POST /analyze → ai-service
-           └─ model call
+POST /analyses              23.92 s   ← was meant to return in under a second
+  └─ HTTP GET               23.08 s   ← /version, waiting on a sleeping AI service
+analysis job  (attempt 1)    2 m      ← cut off by the job timeout
+  └─ HTTP POST               2 m
+analysis job  (attempt 2)   36.46 s
+  └─ HTTP POST              36.29 s
+analysis job  (attempt 3)    3.54 s   ← the AI service mid-redeploy
+  └─ HTTP POST               3.37 s
 ```
+
+The asynchronous endpoint existed so as not to depend on the AI service, and
+the enqueue path depended on it synchronously: before writing the row it
+fetched the prompt version to build the cache key, and with the service asleep
+that call waited out the entire cold start. The 628 ms I had measured was with
+the service awake.
+
+The fix separates how long the caller waits from how long the work runs. The
+request waits at most two seconds for the version and, failing that, enqueues
+without a cache key; the fetch carries on in the background and wakes the
+service for the worker, instead of being cancelled halfway through the start.
+The worker does wait for the fresh version, because it is the one writing to
+the cache: storing under a stale version would file the new prompt's answer
+under the old prompt's key.
+
+No amount of inference from timestamps had got there in a week of diagnosis.
+The trace showed it at first sight.
 
 Four decisions that make it useful:
 
