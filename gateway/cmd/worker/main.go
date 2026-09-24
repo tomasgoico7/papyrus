@@ -72,7 +72,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	upstream := app.UpstreamClient(cfg.RequestTimeout)
+	upstream := app.UpstreamClient(app.UpstreamBudget(cfg))
 	drain := worker.New(
 		jobs.NewStore(pool),
 		app.Analyzer(cfg, upstream, metrics, logger),

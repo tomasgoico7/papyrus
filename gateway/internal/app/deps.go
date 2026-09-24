@@ -103,14 +103,32 @@ func cacheStore(cfg *config.Config, logger *slog.Logger) (cache.Store, time.Dura
 	return cache.NewTiered(local, shared, localTTL), localTTL
 }
 
+// UpstreamBudget is the longest any caller of the AI service may legitimately
+// need, which is what the shared client has to be sized for.
+//
+// One client serves three callers with three different deadlines: a browser
+// waiting on a synchronous request, a queued job with nobody waiting on a
+// socket, and a readiness probe waiting out a cold start. The client's own
+// timeout applies to all of them, so sizing it for the shortest silently caps
+// the other two — which is what happened: the job timeout was raised to two
+// minutes and the probe to ninety seconds while the client kept cutting every
+// call at sixty-five, making both numbers configuration that did nothing.
+//
+// Sizing it for the longest is safe because each caller still bounds itself
+// with a context, and the earlier deadline is the one that fires. The client
+// timeout is a backstop against a connection that hangs forever, not a policy.
+func UpstreamBudget(cfg *config.Config) time.Duration {
+	return max(cfg.RequestTimeout, cfg.JobTimeout, readinessTimeout)
+}
+
 // UpstreamClient is shared by every client of the AI service so they pool
 // connections to the single upstream instead of keeping a pool each.
 //
 // The default transport caps idle connections per host at 2, which under any
 // concurrency forces a fresh dial — and a fresh TLS handshake — per request.
-// The client timeout sits just above the per-request context deadline so the
-// context still wins the race and callers get a 504 rather than a bare
-// transport error.
+// The timeout should come from UpstreamBudget: it has to clear the longest
+// deadline any caller sets, or it becomes the real limit and theirs are
+// decoration.
 func UpstreamClient(requestTimeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConns = 100
@@ -206,6 +224,10 @@ func RateLimiter(
 }
 
 // Readiness probes the AI service, for the worker to tell "asleep" from "broken".
+//
+// The client must be one built for UpstreamBudget. A client sized for the
+// request path cuts the probe short of its own timeout, and the probe then
+// reports "not ready" for a service that was merely still starting.
 func Readiness(cfg *config.Config, upstream *http.Client) *services.HealthClient {
 	return services.NewHealthClient(cfg.AIServiceURL, upstream, readinessTimeout)
 }

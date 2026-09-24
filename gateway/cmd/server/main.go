@@ -45,7 +45,7 @@ func run() error {
 
 	// One registry and one analyzer, shared with the worker when it runs here:
 	// two of either would split the cache and halve the metrics.
-	upstream := app.UpstreamClient(cfg.RequestTimeout)
+	upstream := app.UpstreamClient(app.UpstreamBudget(cfg))
 	analyzer := app.Analyzer(cfg, upstream, metrics, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -145,7 +145,7 @@ func startWorker(
 	embedded := worker.New(
 		store,
 		analyzer,
-		app.Readiness(cfg, app.UpstreamClient(cfg.RequestTimeout)),
+		app.Readiness(cfg, app.UpstreamClient(app.UpstreamBudget(cfg))),
 		metrics,
 		logger.With(slog.String("component", "worker")),
 		worker.Config{
