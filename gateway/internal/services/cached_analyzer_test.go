@@ -468,3 +468,52 @@ func TestLookupWithholdsTheKeyWhenTheVersionIsUnavailable(t *testing.T) {
 		t.Error("the upload should still come back, so the job can run uncached")
 	}
 }
+
+// TestLookupDoesNotWaitOnAColdUpstream is the trace that found this: POST
+// /analyses took twenty four seconds, all of it inside a version fetch to an AI
+// service that was asleep. Enqueueing a row must not depend on that service
+// being awake — that dependency is the one the queue exists to remove.
+func TestLookupDoesNotWaitOnAColdUpstream(t *testing.T) {
+	cold := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(10 * time.Second):
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = w.Write([]byte(`{"promptVersion":"v1","model":"gemini-test"}`))
+	}))
+	defer func() {
+		// The refresh this starts outlives the lookup on purpose. Cut it off
+		// rather than wait out the whole cold start for the server to close.
+		cold.CloseClientConnections()
+		cold.Close()
+	}()
+
+	cached := services.NewCachedAnalyzer(
+		&countingAnalyzer{},
+		cache.NewLRU(8),
+		services.NewVersionClient(cold.URL, "", cold.Client(), time.Minute),
+		observability.NewMetrics(),
+		time.Hour,
+		5*time.Second,
+	)
+
+	started := time.Now()
+	found, err := cached.Lookup(context.Background(), request("%PDF cv", "A backend role.", "Backend"))
+	waited := time.Since(started)
+
+	if err != nil {
+		t.Fatalf("a cold upstream must not fail the lookup: %v", err)
+	}
+	// The budget is two seconds; the upstream would take ten. Anything near ten
+	// means the request path is waiting out the cold start again.
+	if waited > 4*time.Second {
+		t.Errorf("lookup waited %v on a cold upstream; the request path should give up after its budget", waited)
+	}
+	if found.Key != "" {
+		t.Error("no version arrived in time, so there should be no cache key")
+	}
+	if len(found.CV) == 0 {
+		t.Error("the upload should still come back so the job can be queued")
+	}
+}

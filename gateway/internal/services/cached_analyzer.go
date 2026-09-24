@@ -210,6 +210,11 @@ type Lookup struct {
 	Analysis *transport.Analysis
 }
 
+// lookupVersionWait is how long enqueueing will wait for the AI service's
+// version. Long enough to cover a warm fetch several times over, short enough
+// that a cold one never reaches the person waiting on the response.
+const lookupVersionWait = 2 * time.Second
+
 // Lookup reads the upload and reports what the cache already knows about it. It
 // never calls the upstream: deciding to do the work is the caller's business.
 func (a *CachedAnalyzer) Lookup(ctx context.Context, req AnalyzeRequest) (Lookup, error) {
@@ -220,7 +225,16 @@ func (a *CachedAnalyzer) Lookup(ctx context.Context, req AnalyzeRequest) (Lookup
 		return Lookup{}, fmt.Errorf("reading cv: %w", err)
 	}
 
-	version, err := a.versions.Current(ctx)
+	// This runs on the request path, ahead of enqueueing, so it gets a short
+	// leash. Waiting for the version here made the asynchronous endpoint wait on
+	// the AI service after all: with the service asleep, the request that only
+	// had to write a row took twenty four seconds, which is the whole cold start
+	// moved from the worker to the person clicking. Past the budget the job is
+	// queued without a cache key, and the refresh this started keeps running
+	// and wakes the service for the worker that picks the job up.
+	versionCtx, cancel := context.WithTimeout(ctx, lookupVersionWait)
+	version, err := a.versions.Recent(versionCtx)
+	cancel()
 	if err != nil {
 		// No fingerprint means no key worth trusting. The work still has to
 		// happen; it just cannot be shared with anything else.
