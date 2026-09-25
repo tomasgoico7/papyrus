@@ -1,0 +1,4 @@
+# Line endings are enforced here rather than left to each editor. The
+# .editorconfig asks for LF, but git does not read it, and a tool that wrote
+# CRLF on Windows once rewrote every line of a dozen files in one commit.
+* text=auto eol=lf
