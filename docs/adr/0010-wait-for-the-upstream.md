@@ -101,11 +101,19 @@ Holding the probe open is still worth doing, because one long probe replaces
 several short ones and does not report "not ready" for a service seconds away
 from answering; it is just not the mechanism it was described as.
 
-**An authenticated request is not refused at the edge.** The version fetch
-carries the internal token, and a trace showed it waking a sleeping instance in
-twenty three seconds. The token was never visible to the platform in the first
-place. Why the analysis call specifically was answered 429 during a start is
-still unknown, and is not explained by anything here.
+**The token was never the factor.** The worker's readiness probes carry no
+token, and they were refused at the edge the same way the analysis calls were.
+This paragraph first cited a version fetch that seemed to wake a sleeping
+instance in twenty three seconds as evidence; that fetch happened while the AI
+service was being redeployed, and it was the deploy that brought it up. The
+conclusion holds, on the tokenless probes rather than that trace.
+
+What does decide it is where a request comes from. From the gateway, the edge
+refuses a parked instance and never starts it; from outside the platform, the
+same client with the same protocol wakes it in about thirty seconds. That, and
+what was done about it, is [0014](0014-wake-the-ai-service-from-the-browser.md).
+The probes described here stay: they wake nothing, but they notice the moment
+something else does.
 
 The numbers moved with what was measured. The slowest cold start seen took
 three minutes, so the budget went from a hundred seconds to four minutes. And

@@ -146,11 +146,30 @@ minute wait into dozens of requests to a service already refusing them.
 Two things once written here turned out not to be true, and are worth knowing so
 they are not rediscovered as fact. Hanging up a probe does not abandon the start
 it triggered: a probe cut off at a hundred seconds was followed by one answered
-fifty three seconds later, well short of a fresh start. And a request carrying
-the internal token is not refused at the platform edge: the version fetch is
-authenticated, and it woke a sleeping instance in twenty three seconds. Why the
-analysis call was answered 429 during a start while other requests were not is
-still not known.
+fifty three seconds later, well short of a fresh start. And the internal token
+has nothing to do with it: the probes carry none and were refused all the same.
+
+What does decide it is where a request comes from. **From the gateway, the edge
+answers a parked AI service with 429 and never starts it; from outside the
+platform, the same request is held and wakes it in about thirty seconds.** It was
+measured with the gateway's own HTTP client, same HTTP/2, from a residential
+address — only the origin differed. So the browser wakes the service, when the
+workspace opens and again on submit (ADR 0014), and the worker's probes are
+there to notice the moment it answers, not to wake it.
+
+If analyses into a cold service start failing again, check first that an outside
+request still wakes it. Against an instance idle for twenty minutes:
+
+```
+curl -s -o /dev/null -w '%{http_code} %{time_total}s\n' --max-time 120 \
+  https://papyrus-94mv.onrender.com/health
+```
+
+A 200 after twenty to forty seconds means outside requests still wake it, and
+the question is whether the browser's is being sent — look for a request to
+`/health` on the AI service in the network tab when the workspace opens. A 429
+means the platform has changed what it does, and this whole arrangement needs
+revisiting.
 
 If the budget passes with no answer, the attempt falls back to the long throttle
 delay — three attempts spanning 90 to 135 seconds — which still outlasts a slow
@@ -166,8 +185,8 @@ hand, means the cold start has outgrown the probe timeout. Measure it before
 changing anything:
 
 ```
-curl -s -o /dev/null -w '%{http_code} %{time_total}s
-' --max-time 120   https://papyrus-94mv.onrender.com/health
+curl -s -o /dev/null -w '%{http_code} %{time_total}s\n' --max-time 120 \
+  https://papyrus-94mv.onrender.com/health
 ```
 
 Run that against an instance that has been idle for twenty minutes or more; a

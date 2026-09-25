@@ -30,6 +30,7 @@ duplicating the depth here would double the maintenance for no reader.
 | [0011](0011-carry-one-trace-across-the-queue.md) | Carry one trace across the queue | Accepted |
 | [0012](0012-gate-the-queue-on-the-schema-version.md) | Gate the queue on the schema version | Accepted |
 | [0013](0013-hold-the-queue-plans-in-tests.md) | Hold the queue's query plans in tests | Accepted |
+| [0014](0014-wake-the-ai-service-from-the-browser.md) | Wake the AI service from the browser | Accepted |
 
 Records 0001 to 0005 were written after the fact, from decisions already visible
 in the code. Everything from 0006 on is recorded as it is taken.
