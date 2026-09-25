@@ -1,0 +1,13 @@
+# Commits that only changed line endings, or mixed real changes with a rewrite
+# of every line to CRLF. git blame --ignore-revs-file, and GitHub's blame view,
+# skip them, so each line is still credited to the change that wrote it.
+#
+# The two below the first carry real work too. Lines they added still blame to
+# them; only the lines they merely re-ended are passed over.
+
+# chore: restore lf line endings and let git enforce them
+06754fe685a0a27226e6fbd66c6e31bf15901e4a
+# docs: record why the gateway cannot wake the ai service and the browser can
+34cbe104e6cb778fc6baf2e16e344d372d220148
+# feat(web): wake the ai service from the browser before an analysis needs it
+c267f22937cf5498ff0079ab3d01e26069331545
