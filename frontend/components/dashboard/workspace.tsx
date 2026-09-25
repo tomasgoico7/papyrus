@@ -24,6 +24,7 @@ import {
   saveTailoredCv,
 } from "@/lib/analyses/repository";
 import { runAnalysis } from "@/lib/api/analyses";
+import { wakeAnalysisService } from "@/lib/api/wake";
 import { GatewayError, localizeGatewayError } from "@/lib/api/gateway";
 import {
   createCvDownloadUrl,
@@ -145,6 +146,13 @@ export function Workspace({ userId }: { userId: string }) {
   }
 
   useEffect(() => () => pollingRef.current?.abort(), []);
+
+  // Opening the workspace is the earliest sign someone is about to analyse, so
+  // the AI service is woken now rather than when they submit — thirty seconds of
+  // start-up spent while they choose a file and paste an offer.
+  useEffect(() => {
+    void wakeAnalysisService();
+  }, []);
 
   async function handleAnalyze() {
     if (!cvFile && !selectedCv) return;

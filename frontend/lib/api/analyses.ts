@@ -7,6 +7,7 @@ import {
 } from "@/lib/api/gateway";
 import type { AnalyzeInput } from "@/lib/api/gateway";
 import type { AnalysisResult } from "@/lib/types";
+import { wakeAnalysisService } from "@/lib/api/wake";
 
 /** What the gateway does with a submitted analysis. */
 export type Submission =
@@ -233,6 +234,10 @@ export async function runAnalysis(
   input: AnalyzeInput,
   options: AwaitOptions = {},
 ): Promise<AnalysisResult> {
+  // Again at submit time, in case the workspace has been open long enough for
+  // the service to fall back asleep. Inside the ten minute window it is a no-op.
+  void wakeAnalysisService();
+
   if (asyncSupported !== false) {
     try {
       const submission = await submitAnalysis(input);
