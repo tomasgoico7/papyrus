@@ -67,8 +67,10 @@ func run() error {
 	// The queue is optional: without a database the gateway serves only the
 	// synchronous path, exactly as it did before there was one.
 	var (
-		store *jobs.Store
-		queue handlers.JobQueue
+		store      *jobs.Store
+		queue      handlers.JobQueue
+		queueReady func() bool
+		workers    sync.WaitGroup
 	)
 	if cfg.QueueEnabled() {
 		pool, err := app.Pool(ctx, cfg)
@@ -79,18 +81,31 @@ func run() error {
 
 		store = jobs.NewStore(pool)
 		queue = store
+
+		// Checked once before serving, so the first request meets the real state
+		// rather than a gate that has not looked yet. A closed gate answers 404,
+		// and a client that sees one stops trying the queue for the rest of its
+		// session.
+		gate := app.SchemaGate(pool, metrics, logger)
+		gate.Check(ctx)
+		queueReady = gate.Ready
+
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			gate.Run(ctx)
+		}()
 	} else if cfg.RunWorker {
 		return errors.New("RUN_WORKER is set but DATABASE_URL is empty")
 	}
 
-	var workers sync.WaitGroup
 	if cfg.RunWorker {
-		startWorker(ctx, store, logger, metrics, analyzer, cfg, &workers)
+		startWorker(ctx, store, queueReady, logger, metrics, analyzer, cfg, &workers)
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           router.New(cfg, logger, metrics, analyzer, queue),
+		Handler:           router.New(cfg, logger, metrics, analyzer, queue, queueReady),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
@@ -136,6 +151,7 @@ func run() error {
 func startWorker(
 	ctx context.Context,
 	store *jobs.Store,
+	ready func() bool,
 	logger *slog.Logger,
 	metrics *observability.Metrics,
 	analyzer services.Analyzer,
@@ -143,7 +159,7 @@ func startWorker(
 	wg *sync.WaitGroup,
 ) {
 	embedded := worker.New(
-		store,
+		worker.Gated(store, ready),
 		analyzer,
 		app.Readiness(cfg, app.UpstreamClient(app.UpstreamBudget(cfg))),
 		metrics,

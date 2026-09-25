@@ -72,9 +72,15 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// The standalone worker needs the same guard as the embedded one: it deploys
+	// on the same push, ahead of the same migration.
+	gate := app.SchemaGate(pool, metrics, logger)
+	gate.Check(ctx)
+	go gate.Run(ctx)
+
 	upstream := app.UpstreamClient(app.UpstreamBudget(cfg))
 	drain := worker.New(
-		jobs.NewStore(pool),
+		worker.Gated(jobs.NewStore(pool), gate.Ready),
 		app.Analyzer(cfg, upstream, metrics, logger),
 		app.Readiness(cfg, upstream),
 		metrics,

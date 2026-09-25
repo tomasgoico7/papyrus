@@ -18,6 +18,7 @@ import (
 	"github.com/papyrus/gateway/internal/config"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/ratelimit"
+	"github.com/papyrus/gateway/internal/schema"
 	"github.com/papyrus/gateway/internal/services"
 )
 
@@ -198,6 +199,17 @@ func Pool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("pinging the database: %w", err)
 	}
 	return pool, nil
+}
+
+// schemaCheckInterval is how soon an applied migration is noticed. Short enough
+// that the queue comes back while whoever applied it is still watching, long
+// enough that the check is not a load of its own.
+const schemaCheckInterval = 30 * time.Second
+
+// SchemaGate watches whether the database has the schema this build needs.
+func SchemaGate(pool *pgxpool.Pool, metrics *observability.Metrics, logger *slog.Logger) *schema.Gate {
+	return schema.NewGate(pool, schema.RequiredVersion, schemaCheckInterval, metrics,
+		logger.With(slog.String("component", "schema")))
 }
 
 // RateLimiter builds the request budget.

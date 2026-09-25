@@ -2,6 +2,7 @@ package router
 
 import (
 	"log/slog"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -10,6 +11,7 @@ import (
 	"github.com/papyrus/gateway/internal/auth"
 	"github.com/papyrus/gateway/internal/config"
 	"github.com/papyrus/gateway/internal/handlers"
+	"github.com/papyrus/gateway/internal/httpx"
 	"github.com/papyrus/gateway/internal/middleware"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
@@ -25,6 +27,7 @@ func New(
 	metrics *observability.Metrics,
 	analyzer services.Analyzer,
 	queue handlers.JobQueue,
+	queueReady func() bool,
 ) *gin.Engine {
 	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
@@ -69,8 +72,9 @@ func New(
 	// keeps working exactly as before.
 	if lookup, ok := analyzer.(handlers.AnalysisLookup); ok && queue != nil {
 		analyses := handlers.NewAnalysesHandler(lookup, queue, cfg.MaxUploadBytes, cfg.RequestTimeout)
-		authed.POST("/analyses", analyses.Submit)
-		authed.GET("/analyses/:id", analyses.Status)
+		queued := authed.Group("/", whenReady(queueReady))
+		queued.POST("/analyses", analyses.Submit)
+		queued.GET("/analyses/:id", analyses.Status)
 		logger.Info("asynchronous analyses enabled")
 	}
 
@@ -100,5 +104,25 @@ func worthTracing(c *gin.Context) bool {
 		return false
 	default:
 		return true
+	}
+}
+
+// whenReady hides the queued routes while the database is missing the schema
+// they need.
+//
+// The answer is 404 rather than 503 on purpose. It is exactly what a gateway
+// with no queue at all says, and the client already knows what to do with it:
+// fall back to the synchronous endpoint and wait for the model. So a release
+// that goes out ahead of its migration costs people the queue for a while, not
+// their analysis. A 503 would have shown them an error for something that
+// could still have been done.
+func whenReady(ready func() bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if ready != nil && !ready() {
+			httpx.RespondError(c, http.StatusNotFound, "queue_unavailable",
+				"Queued analyses are not available right now.")
+			return
+		}
+		c.Next()
 	}
 }

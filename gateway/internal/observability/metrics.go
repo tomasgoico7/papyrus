@@ -37,6 +37,8 @@ type Metrics struct {
 
 	rateLimits      *prometheus.CounterVec
 	rateLimitShared prometheus.Gauge
+
+	schemaReady prometheus.Gauge
 }
 
 func NewMetrics() *Metrics {
@@ -121,6 +123,12 @@ func NewMetrics() *Metrics {
 				Help: "1 when the limiter has a shared backend configured, 0 when it counts alone.",
 			},
 		),
+		schemaReady: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "schema_ready",
+				Help: "1 when the database has the schema this build needs, 0 while a migration is outstanding.",
+			},
+		),
 	}
 
 	m.registry.MustRegister(
@@ -136,6 +144,7 @@ func NewMetrics() *Metrics {
 		m.jobsDead,
 		m.rateLimits,
 		m.rateLimitShared,
+		m.schemaReady,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -256,4 +265,15 @@ func (m *Metrics) SetRateLimitShared(shared bool) {
 		value = 1
 	}
 	m.rateLimitShared.Set(value)
+}
+
+// SetSchemaReady records whether the database has caught up with this build.
+// A zero here is a migration waiting to be applied, and the queue standing
+// aside until it is.
+func (m *Metrics) SetSchemaReady(ready bool) {
+	value := 0.0
+	if ready {
+		value = 1
+	}
+	m.schemaReady.Set(value)
 }
