@@ -250,6 +250,45 @@ off does not put a hole in anybody else's trace.
 
 ---
 
+## The queue is off: the schema is behind
+
+`database schema is behind; the queue is off until it is migrated` in the log,
+with `have` and `need` versions, means a release went out ahead of its
+migration. The gateway checks every thirty seconds, and `schema_ready` on
+`/metrics` is `0` for as long as it lasts.
+
+Nothing is broken. The queued routes answer 404, which is what a gateway with no
+queue says, and the client falls back to the synchronous endpoint on exactly
+that. People still get their analyses; they wait for them in the browser instead
+of polling. The worker claims nothing, because a claim would read columns that
+are not there yet.
+
+Apply the migration named by `need`. Within thirty seconds the log says
+`database schema is in place; the queue is on`, `schema_ready` goes to `1`, and
+jobs start moving again. No restart. A browser tab that already fell back keeps
+using the synchronous endpoint until it is reloaded.
+
+## Adding a migration
+
+Take the next number, and end the file by recording itself:
+
+```sql
+insert into public.schema_migrations (version) values ('0009')
+on conflict (version) do nothing;
+```
+
+Then raise `schema.RequiredVersion` in `gateway/internal/schema/schema.go` to
+match. Tests hold both: a migration that does not record itself, or a
+`RequiredVersion` behind the newest file, fails CI. They also apply every
+migration to a real Postgres, twice, so one that breaks or cannot be pasted a
+second time is caught before it reaches the SQL editor.
+
+**Apply it before pushing the code.** Pushing first is safe — the gate keeps the
+queue out of the way — but it costs the queue for however long the migration
+takes to arrive. The order the gate makes safe is not the order it makes free.
+
+---
+
 ## Which build is running
 
 Before diagnosing anything else, check that the fix you are reasoning about is
