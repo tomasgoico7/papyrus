@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,6 +34,7 @@ type fakeQueue struct {
 	completed map[string][]byte
 	retried   map[string]time.Time
 	failed    map[string]string
+	messages  map[string]string
 
 	completeErr   error
 	purges        [][2]time.Duration
@@ -46,6 +49,7 @@ func newFakeQueue(pending ...*jobs.Job) *fakeQueue {
 		completed: map[string][]byte{},
 		retried:   map[string]time.Time{},
 		failed:    map[string]string{},
+		messages:  map[string]string{},
 		drained:   make(chan struct{}),
 	}
 }
@@ -89,13 +93,14 @@ func (q *fakeQueue) Retry(ctx context.Context, id string, runAfter time.Time, _,
 	return nil
 }
 
-func (q *fakeQueue) Fail(ctx context.Context, id, code, _ string) error {
+func (q *fakeQueue) Fail(ctx context.Context, id, code, message string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.failed[id] = code
+	q.messages[id] = message
 	return nil
 }
 
@@ -933,5 +938,64 @@ func TestWorkerStartsItsOwnTraceForAJobThatHasNone(t *testing.T) {
 		if span.Name() == "analysis job" && !span.SpanContext().TraceID().IsValid() {
 			t.Error("the attempt ran without a trace of its own")
 		}
+	}
+}
+
+// TestATransportFailureIsRecordedAsUnavailable covers the job that died when
+// the AI service redeployed under it. The connection was cut before any answer
+// came back, and the row said analysis_failed — which reads as the model having
+// got it wrong, and sent the diagnosis looking at the prompt.
+func TestATransportFailureIsRecordedAsUnavailable(t *testing.T) {
+	// A real transport error, the way the HTTP client produces one: wrapped in
+	// a url.Error that carries the address it was trying to reach.
+	cut := &url.Error{
+		Op:  "Post",
+		URL: "https://papyrus-ai-internal.example/analyze",
+		Err: errors.New("read: connection reset by peer"),
+	}
+
+	queue := newFakeQueue(job("j1", 3, 3))
+	run(t, queue, stubAnalyzer{err: cut})
+
+	_, _, failed := queue.snapshot()
+	if got := failed["j1"]; got != "upstream_unavailable" {
+		t.Errorf("code = %q, want upstream_unavailable, the same the request path uses", got)
+	}
+
+	queue.mu.Lock()
+	message := queue.messages["j1"]
+	queue.mu.Unlock()
+
+	// This row is returned to the client. The detail belongs on the span and in
+	// the log, not in a response that would name the service's internal address.
+	if strings.Contains(message, "papyrus-ai-internal") {
+		t.Errorf("message %q leaks the internal address of the AI service", message)
+	}
+	if message == "" {
+		t.Error("the row should still say what happened in plain terms")
+	}
+}
+
+// TestWorkerBacksOffAnUpstreamThatRefusesAtOnce is about what the probes cost
+// the upstream. A probe that is refused comes back immediately, and on a fixed
+// short timer a two minute wait became dozens of requests from one address to
+// a service already refusing it — the pattern that keeps an edge rate limit in
+// place rather than letting it lapse.
+func TestWorkerBacksOffAnUpstreamThatRefusesAtOnce(t *testing.T) {
+	queue := newFakeQueue(job("j1", 1, 3))
+	// Never ready, and never slow about saying so.
+	refusing := &wakingUpstream{readyFrom: 1 << 30}
+
+	// runWith allows two seconds and starts the probes ten milliseconds apart.
+	runWith(t, queue, stubAnalyzer{err: throttled()}, refusing)
+
+	// A fixed ten millisecond gap is about two hundred probes in two seconds.
+	// Doubling from there is eight. The bound is loose on purpose: the point is
+	// the order of magnitude, not the exact schedule.
+	if got := refusing.probes.Load(); got > 15 {
+		t.Errorf("probed %d times in two seconds against an upstream refusing at once; the gap should grow", got)
+	}
+	if got := refusing.probes.Load(); got < 3 {
+		t.Errorf("probed only %d times; the wait should still keep asking", got)
 	}
 }

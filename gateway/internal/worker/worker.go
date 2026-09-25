@@ -65,7 +65,8 @@ type Config struct {
 	// WakeBudget is how long to wait for a throttled upstream to report itself
 	// ready before giving up and falling back to a plain backoff.
 	WakeBudget time.Duration
-	// WakeProbeInterval is the gap between readiness probes.
+	// WakeProbeInterval is the gap after the first failed readiness probe. It
+	// doubles after each further one, up to maxWakeProbeInterval.
 	WakeProbeInterval time.Duration
 	// ReadyBackoff is the short delay used once the upstream has said it is
 	// ready: there is nothing left to wait for.
@@ -103,12 +104,12 @@ func (c Config) withDefaults() Config {
 		c.MaxBackoff = 5 * time.Minute
 	}
 	if c.WakeBudget <= 0 {
-		// One measured cold start is 31 seconds, and the probe has to be able to
-		// ride out a whole one rather than most of one: a wait that gives up at
-		// the 30 second mark is not a short wait, it is a wait that never
-		// succeeds. The room above that covers a slower start, and the ceiling
-		// still leaves the first attempt inside the caller's own patience.
-		c.WakeBudget = 100 * time.Second
+		// The slowest cold start seen in production took three minutes from the
+		// first probe to the first answer, across two attempts because the old
+		// budget of a hundred seconds ran out partway. A budget under the thing it
+		// has to outlast is not a short wait but a wait that fails; this clears
+		// the measured worst case by a third.
+		c.WakeBudget = 240 * time.Second
 	}
 	if c.WakeProbeInterval <= 0 {
 		c.WakeProbeInterval = 5 * time.Second
@@ -302,13 +303,13 @@ func (w *Worker) process(ctx context.Context, job *jobs.Job, logger *slog.Logger
 	observability.EndSpan(span, err)
 	cancelRun()
 
-	// A throttled upstream is usually one that is asleep rather than busy, and
-	// retrying blindly bounces off the proxy in front of it without ever waking
-	// it. A readiness probe is a request that does get through, so it is both
-	// the question and the thing that starts the answer.
+	// A throttled upstream is usually one that is asleep rather than busy.
+	// Retrying on a timer only guesses at when it will be back; a readiness
+	// probe asks, so the retry can go out the moment it answers instead of after
+	// a backoff sized for the slowest start there has ever been.
 	//
 	// This runs before the bookkeeping context is opened, not after: the wait
-	// lasts up to a minute and that context is measured in seconds.
+	// lasts minutes and that context is measured in seconds.
 	ready := false
 	if err != nil && upstreamThrottled(err) {
 		ready = w.waitForUpstream(ctx, logger)
@@ -502,6 +503,9 @@ func retriable(err error) bool {
 	return true
 }
 
+// maxWakeProbeInterval caps the gap between readiness probes as it grows.
+const maxWakeProbeInterval = 30 * time.Second
+
 // waitForUpstream polls readiness until the upstream answers or the budget runs
 // out, and reports whether it came back. The wait happens on a worker slot on
 // purpose: the job is already claimed, and holding it is cheaper than releasing
@@ -520,14 +524,21 @@ func (w *Worker) waitForUpstream(ctx context.Context, logger *slog.Logger) bool 
 	waitCtx, cancel := context.WithTimeout(ctx, w.cfg.WakeBudget)
 	defer cancel()
 
+	interval := w.cfg.WakeProbeInterval
 	for waitCtx.Err() == nil {
 		if err := w.readiness.Ready(waitCtx); err == nil {
 			logger.Info("upstream came back", slog.Duration("waited", time.Since(started)))
 			return true
 		}
-		if !sleep(waitCtx, w.cfg.WakeProbeInterval) {
+		if !sleep(waitCtx, interval) {
 			break
 		}
+		// A probe that is kept waiting blocks for as long as the upstream takes,
+		// so the interval only matters for one that fails at once — and a probe
+		// failing at once is being refused, not kept waiting. Asking again on a
+		// fixed short timer turned each refusal into dozens more from the same
+		// address, which is how a rate limit at the edge sustains itself.
+		interval = min(interval*2, maxWakeProbeInterval)
 	}
 
 	logger.Warn("upstream did not come back", slog.Duration("waited", time.Since(started)))
@@ -564,7 +575,17 @@ func describe(err error) (code, message string) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "upstream_timeout", "The analysis took too long."
 	}
-	return "analysis_failed", "The analysis could not be completed."
+	// What is left never got an answer at all: the connection was refused, cut
+	// or never made. The request path calls that upstream_unavailable, and so
+	// does this now. It used to be recorded as analysis_failed, which reads as
+	// the model having been asked and got it wrong — when nothing had been
+	// asked, and a job lost to a redeploy looked like a bad prompt.
+	//
+	// The underlying error is deliberately not in the message. This row is
+	// returned to the client, and a transport error names the internal URL of
+	// the AI service. The detail is on the attempt's span and in the log line
+	// for the same attempt, which are the places built for reading it.
+	return "upstream_unavailable", "The AI service could not be reached."
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {
