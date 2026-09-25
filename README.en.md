@@ -522,6 +522,37 @@ The token is a real Supabase one — the gateway verifies the signature against 
 project JWKS and there is no way to mint one offline. Take it from a browser session
 with `(await supabase.auth.getSession()).data.session.access_token`.
 
+
+### The queue, on a full table
+
+The queue's efficiency rested on comments. Explaining every statement the worker
+runs, against 100,000 rows in steady state — mostly finished work, a thin layer
+of live jobs, everything inside its retention window — found two periodic
+queries reading the whole table to act on almost nothing, and a claim that was
+fast **by accident**: an index built for something else served it, and widening
+that index sent the claim to reading all 100,000 rows.
+
+```bash
+cd gateway && go test ./internal/jobs/ -run 'TestTheQueueQueries|TestAClaimReads' -v
+```
+
+| Query | How often | Before | After |
+|---|---|---|---|
+| claim | every poll | 2,002 rows, 1.6 ms | **3 rows, 0.2 ms** |
+| depth gauge | every 15 s | 100,000 rows, 16.6 ms | **8,000 rows, 2.3 ms** |
+| retention sweep | every 2 min | 100,000 rows, 15.5 ms | **0 rows, 0.08 ms** |
+
+The claim now has an index of its own, ordered the way it reads, and stops at
+the first row it can take. The tests assert the property — that no query scans
+the table, and that a claim reads the live layer rather than the history —
+without naming indexes, so a reasonable schema change does not break them; only
+one that sends a query back to reading everything does.
+
+At current traffic the table holds a few dozen rows and none of this shows in
+production. That is the point: the cost is set by the design and proven by a
+test, rather than holding because nobody has used it much yet. See
+[ADR 0013](docs/adr/0013-hold-the-queue-plans-in-tests.md).
+
 ---
 
 ## Testing

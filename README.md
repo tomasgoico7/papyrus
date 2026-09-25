@@ -524,6 +524,37 @@ El token es uno real de Supabase — el gateway verifica la firma contra el JWKS
 proyecto y no hay forma de fabricar uno offline. Se saca de una sesión del browser
 con `(await supabase.auth.getSession()).data.session.access_token`.
 
+
+### La cola, sobre una tabla llena
+
+La eficiencia de la cola descansaba en comentarios. Explicar cada consulta que
+corre el worker, contra 100.000 filas en régimen —casi todo trabajo terminado,
+una capa fina de jobs vivos, todo dentro de su ventana de retención—, encontró
+dos consultas periódicas que leían la tabla entera para actuar sobre casi nada, y
+un claim que era rápido **por accidente**: lo servía un índice creado para otra
+cosa, y ensancharlo lo mandaba a leer las 100.000 filas.
+
+```bash
+cd gateway && go test ./internal/jobs/ -run 'TestTheQueueQueries|TestAClaimReads' -v
+```
+
+| Consulta | Cada cuánto | Antes | Después |
+|---|---|---|---|
+| claim | cada poll | 2.002 filas, 1,6 ms | **3 filas, 0,2 ms** |
+| gauge de profundidad | cada 15 s | 100.000 filas, 16,6 ms | **8.000 filas, 2,3 ms** |
+| purga por retención | cada 2 min | 100.000 filas, 15,5 ms | **0 filas, 0,08 ms** |
+
+El claim ahora tiene un índice propio, ordenado como lo lee, y para en la primera
+fila que puede tomar. Los tests afirman la propiedad —que ninguna consulta
+recorra la tabla y que el claim lea la capa viva y no la historia— sin nombrar
+índices, así que un cambio razonable del esquema no los rompe; solo uno que
+devuelva alguna consulta a leer todo.
+
+Con el tráfico actual la tabla tiene unas decenas de filas y nada de esto se nota
+en producción. Ese es el punto: que el costo lo fije el diseño y lo pruebe un
+test, en vez de sostenerse porque todavía nadie la usó mucho. Ver
+[ADR 0013](docs/adr/0013-hold-the-queue-plans-in-tests.md).
+
 ---
 
 ## Tests

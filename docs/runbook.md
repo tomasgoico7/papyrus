@@ -278,7 +278,14 @@ on conflict (version) do nothing;
 ```
 
 Then raise `schema.RequiredVersion` in `gateway/internal/schema/schema.go` to
-match. Tests hold both: a migration that does not record itself, or a
+match.
+
+If it touches an index on `analysis_jobs`, the plan tests in
+`gateway/internal/jobs/claim_plan_test.go` explain every statement the worker runs
+against a hundred thousand rows. One that goes back to reading the whole table
+fails there, with its plan printed. They check what is read, not which index
+reads it, so moving work from one index to another is fine as long as nothing
+ends up scanning. Tests hold both: a migration that does not record itself, or a
 `RequiredVersion` behind the newest file, fails CI. They also apply every
 migration to a real Postgres, twice, so one that breaks or cannot be pasted a
 second time is caught before it reaches the SQL editor.
