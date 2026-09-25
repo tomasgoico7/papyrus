@@ -84,6 +84,36 @@ func (s *Store) Enqueue(ctx context.Context, input NewJob) (*Job, bool, error) {
 	return job, false, nil
 }
 
+// claimSQL is the claim, at package level so the test that checks its plan
+// runs the query itself rather than a copy that could drift from it.
+const claimSQL = `
+	update analysis_jobs
+	set state = 'running',
+	    attempts = attempts + 1,
+	    claimed_at = now(),
+	    updated_at = now()
+	where id = (
+		select id
+		from analysis_jobs
+		where (state = 'queued' and run_after <= now())
+		   or (
+		        state = 'running'
+		        and claimed_at < now() - make_interval(secs => $1)
+		        -- The ceiling has to be enforced here and not only in the
+		        -- worker. The worker's check runs when an attempt ends in an
+		        -- error; a worker that is killed mid-attempt never reaches
+		        -- it, so without this a job is reclaimed forever and its
+		        -- attempts climb past the maximum. One job reached seven
+		        -- against a limit of three that way, across a run of
+		        -- deploys.
+		        and attempts < max_attempts
+		      )
+		order by run_after, created_at
+		for update skip locked
+		limit 1
+	)
+	returning ` + pollColumns + `, cv, coalesce(traceparent, '')`
+
 // Claim takes the oldest job that is due and marks it running, atomically.
 //
 // `for update skip locked` is what makes several workers safe against each
@@ -94,40 +124,12 @@ func (s *Store) Enqueue(ctx context.Context, input NewJob) (*Job, bool, error) {
 // worker that took it is assumed dead. That makes delivery at-least-once, which
 // is why the work it guards has to tolerate being repeated.
 func (s *Store) Claim(ctx context.Context, staleAfter time.Duration) (*Job, error) {
-	const claim = `
-		update analysis_jobs
-		set state = 'running',
-		    attempts = attempts + 1,
-		    claimed_at = now(),
-		    updated_at = now()
-		where id = (
-			select id
-			from analysis_jobs
-			where (state = 'queued' and run_after <= now())
-			   or (
-			        state = 'running'
-			        and claimed_at < now() - make_interval(secs => $1)
-			        -- The ceiling has to be enforced here and not only in the
-			        -- worker. The worker's check runs when an attempt ends in an
-			        -- error; a worker that is killed mid-attempt never reaches
-			        -- it, so without this a job is reclaimed forever and its
-			        -- attempts climb past the maximum. One job reached seven
-			        -- against a limit of three that way, across a run of
-			        -- deploys.
-			        and attempts < max_attempts
-			      )
-			order by run_after, created_at
-			for update skip locked
-			limit 1
-		)
-		returning ` + pollColumns + `, cv, coalesce(traceparent, '')`
-
 	var job Job
 	var title, errCode, errMessage *string
 	var result []byte
 
 	var state string
-	err := s.pool.QueryRow(ctx, claim, staleAfter.Seconds()).Scan(
+	err := s.pool.QueryRow(ctx, claimSQL, staleAfter.Seconds()).Scan(
 		&job.ID, &job.UserID, &job.DedupKey, &state, &job.Attempts, &job.MaxAttempts,
 		&job.CVFilename, &job.JobOffer, &title,
 		&result, &errCode, &errMessage,
@@ -227,29 +229,38 @@ type Depth struct {
 	Dead int
 }
 
+// measureSQL counts the live jobs and the dead ones in two parts, each shaped
+// to match a partial index: one over the live jobs, one over the finished. As a single pass over the table with no
+// where clause it read every row every fifteen seconds — the finished history
+// that is most of the table, to count the handful of jobs still moving.
+const measureSQL = `
+	select
+		count(*) filter (where state = 'queued'),
+		count(*) filter (where state = 'running'),
+		(select count(*) from analysis_jobs where state = 'failed')
+	from analysis_jobs
+	where state in ('queued', 'running')`
+
 // Measure counts the queue for the metrics gauges.
 func (s *Store) Measure(ctx context.Context) (Depth, error) {
-	const query = `
-		select
-			count(*) filter (where state = 'queued'),
-			count(*) filter (where state = 'running'),
-			count(*) filter (where state = 'failed')
-		from analysis_jobs`
-
 	var depth Depth
-	if err := s.pool.QueryRow(ctx, query).Scan(&depth.Queued, &depth.Running, &depth.Dead); err != nil {
+	if err := s.pool.QueryRow(ctx, measureSQL).Scan(&depth.Queued, &depth.Running, &depth.Dead); err != nil {
 		return Depth{}, fmt.Errorf("jobs: measure: %w", err)
 	}
 	return depth, nil
 }
 
-// PurgeFinished deletes jobs that have outlived their usefulness.
-//
-// Nothing else removes them: the upload is dropped when a job ends, but the row
-// and its result stay. The client collects a result within seconds and the
-// cache holds it afterwards, so a finished job is worth keeping only long
-// enough to debug — and a dead one longer than a successful one, because that
-// is the one somebody will want to look at.
+// failAbandonedSQL is at package level for the same reason as claimSQL.
+const failAbandonedSQL = `
+	update analysis_jobs
+	set state = 'failed',
+	    error_code = 'worker_lost',
+	    error_message = 'The analysis was interrupted and could not be retried.',
+	    finished_at = now(), updated_at = now()
+	where state = 'running'
+	  and claimed_at < now() - make_interval(secs => $1)
+	  and attempts >= max_attempts`
+
 // FailAbandoned ends jobs that were claimed and never finished, and have no
 // attempts left to give. They exist because a process can die between claiming
 // work and recording what happened to it — a deploy, an eviction, a crash.
@@ -259,30 +270,28 @@ func (s *Store) Measure(ctx context.Context) (Depth, error) {
 // moves a running job. They would sit in the queue counting against its depth
 // forever, and the person waiting would never be told.
 func (s *Store) FailAbandoned(ctx context.Context, staleAfter time.Duration) (int64, error) {
-	const query = `
-		update analysis_jobs
-		set state = 'failed',
-		    error_code = 'worker_lost',
-		    error_message = 'The analysis was interrupted and could not be retried.',
-		    finished_at = now(), updated_at = now()
-		where state = 'running'
-		  and claimed_at < now() - make_interval(secs => $1)
-		  and attempts >= max_attempts`
-
-	tag, err := s.pool.Exec(ctx, query, staleAfter.Seconds())
+	tag, err := s.pool.Exec(ctx, failAbandonedSQL, staleAfter.Seconds())
 	if err != nil {
 		return 0, fmt.Errorf("jobs: fail abandoned: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
 
-func (s *Store) PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error) {
-	const query = `
-		delete from analysis_jobs
-		where (state = 'done' and finished_at < now() - make_interval(secs => $1))
-		   or (state = 'failed' and finished_at < now() - make_interval(secs => $2))`
+// purgeFinishedSQL is at package level for the same reason as claimSQL.
+const purgeFinishedSQL = `
+	delete from analysis_jobs
+	where (state = 'done' and finished_at < now() - make_interval(secs => $1))
+	   or (state = 'failed' and finished_at < now() - make_interval(secs => $2))`
 
-	tag, err := s.pool.Exec(ctx, query, doneAfter.Seconds(), deadAfter.Seconds())
+// PurgeFinished deletes jobs that have outlived their usefulness.
+//
+// Nothing else removes them: the upload is dropped when a job ends, but the row
+// and its result stay. The client collects a result within seconds and the
+// cache holds it afterwards, so a finished job is worth keeping only long
+// enough to debug — and a dead one longer than a successful one, because that
+// is the one somebody will want to look at.
+func (s *Store) PurgeFinished(ctx context.Context, doneAfter, deadAfter time.Duration) (int64, error) {
+	tag, err := s.pool.Exec(ctx, purgeFinishedSQL, doneAfter.Seconds(), deadAfter.Seconds())
 	if err != nil {
 		return 0, fmt.Errorf("jobs: purge: %w", err)
 	}

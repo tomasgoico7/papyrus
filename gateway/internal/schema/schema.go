@@ -22,7 +22,7 @@ import (
 // RequiredVersion is the newest migration this code was written against. A test
 // holds it equal to the newest file in supabase/migrations, so adding a
 // migration without raising it fails the build rather than slipping through.
-const RequiredVersion = "0008"
+const RequiredVersion = "0009"
 
 // undefinedTable is Postgres's code for a relation that does not exist.
 const undefinedTable = "42P01"
