@@ -29,11 +29,11 @@ const (
 	versionTTL = 5 * time.Minute
 	// A cache lookup that cannot beat the upstream is not worth waiting for.
 	redisTimeout = 250 * time.Millisecond
-	// Longer than a cold start, measured at 31 seconds, and not by a little: the
-	// probe is supposed to wait out the start rather than sample it. A timeout
-	// under the start time reports "not ready" forever — and worse, hanging up
-	// tells the platform nobody is waiting, so the start it triggered is
-	// abandoned and the next probe begins again from nothing.
+	// Long, so that one probe waits out most of a start instead of sampling it.
+	// A timeout under the start time reports "not ready" for a service seconds
+	// away from answering, and turns each wait into several probes where one
+	// would do. The worker's wake budget bounds the wait as a whole, which is
+	// what lets this be generous.
 	readinessTimeout = 90 * time.Second
 )
 

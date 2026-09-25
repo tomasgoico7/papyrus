@@ -83,10 +83,12 @@ Most dead letters are a single input that will never work — a scanned PDF with
 no text layer, usually `unreadable_cv`. Those are correct outcomes, not
 incidents; the user was told.
 
-A cluster of `upstream_rate_limited`, `ai_service_error` or `upstream_timeout`
-at the same timestamp is an incident: the upstream was down long enough to burn
-every attempt. Those are worth requeuing once it is healthy. A dead letter keeps
-its upload for exactly this reason, so there is something to re-run:
+A cluster of `upstream_rate_limited`, `ai_service_error`, `upstream_timeout` or
+`upstream_unavailable` at the same timestamp is an incident: the upstream was
+down long enough to burn every attempt. `worker_lost` after a deploy is the same
+kind of thing from the other side. All of them are worth requeuing once it is
+healthy. A dead letter keeps its upload for exactly this reason, so there is
+something to re-run:
 
 ```sql
 update analysis_jobs
@@ -94,9 +96,15 @@ set state = 'queued', attempts = 0, run_after = now(),
     claimed_at = null, error_code = null, error_message = null
 where state = 'failed'
   and cv is not null
-  and error_code in ('upstream_rate_limited', 'ai_service_error', 'upstream_timeout')
+  and error_code in ('upstream_rate_limited', 'ai_service_error', 'upstream_timeout',
+                     'upstream_unavailable', 'worker_lost')
   and finished_at > now() - interval '2 hours';
 ```
+
+`upstream_unavailable` means the connection never produced an answer — refused,
+cut, or never made. Before 2026-09-24 the worker recorded that as
+`analysis_failed`, so older rows carrying that code with the message *The
+analysis could not be completed.* are the same thing and requeue the same way.
 
 Check what it would touch with a `select` first. Rows past `DLQ_RETENTION_HOURS`
 are gone entirely, so this only reaches recent ones — which is the intent.
@@ -125,15 +133,24 @@ services get suspended instead.
 So the cold start is tolerated rather than prevented, and the worker waits it out
 deliberately instead of retrying blind. A 429 is not treated as an attempt to
 repeat later on a timer: the worker issues `GET /health` on the AI service and
-holds it open until the service answers, up to 100 seconds, then schedules the
-retry two seconds later.
+holds it open until the service answers, for up to four minutes in all, then
+schedules the retry two seconds later. The slowest cold start seen in production
+took three.
 
-Two things make that work, and both are easy to undo by accident. The probe is
-unauthenticated: a request carrying a token is refused at the platform edge
-without reaching the scheduler that starts a sleeping instance. And the probe
-waits rather than samples: the instance starts *because* a request is waiting
-for it, so hanging up early abandons the start. A cold start measured 31 seconds;
-the probe allows 90.
+The probe waits rather than samples: each one is allowed ninety seconds, so a
+start is usually covered by one or two. A probe that fails *at once* is being
+refused rather than kept waiting, and the gap before the next one doubles, from
+five seconds up to thirty — asking again on a fixed short timer turned a two
+minute wait into dozens of requests to a service already refusing them.
+
+Two things once written here turned out not to be true, and are worth knowing so
+they are not rediscovered as fact. Hanging up a probe does not abandon the start
+it triggered: a probe cut off at a hundred seconds was followed by one answered
+fifty three seconds later, well short of a fresh start. And a request carrying
+the internal token is not refused at the platform edge: the version fetch is
+authenticated, and it woke a sleeping instance in twenty three seconds. Why the
+analysis call was answered 429 during a start while other requests were not is
+still not known.
 
 If the budget passes with no answer, the attempt falls back to the long throttle
 delay — three attempts spanning 90 to 135 seconds — which still outlasts a slow

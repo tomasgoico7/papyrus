@@ -1,7 +1,11 @@
 # 0010. Wait for the upstream instead of retrying blind
 
-- **Status:** accepted
+- **Status:** accepted, amended 2026-09-24
 - **Date:** 2026-09-22
+
+> Two of the factual claims below turned out to be wrong, and the numbers have
+> changed. The decision stands; see [the update](#update-2026-09-24) at the end
+> before relying on the reasoning.
 
 ## Context
 
@@ -83,3 +87,28 @@ kind of thing that quietly stops being true.
 
 Revisit if the service stops being parked at all. On a plan without idle
 suspension the wait never triggers, but it also stops earning its complexity.
+
+## Update, 2026-09-24
+
+Tracing, once it reached production, showed two things this record states as
+fact were not.
+
+**Hanging up a probe does not abandon the start it triggered.** A probe cut off
+by the old hundred second budget was followed by another that was answered
+fifty three seconds later — far short of a fresh three minute start. Whatever
+the platform does when a request is dropped mid-start, it is not resetting it.
+Holding the probe open is still worth doing, because one long probe replaces
+several short ones and does not report "not ready" for a service seconds away
+from answering; it is just not the mechanism it was described as.
+
+**An authenticated request is not refused at the edge.** The version fetch
+carries the internal token, and a trace showed it waking a sleeping instance in
+twenty three seconds. The token was never visible to the platform in the first
+place. Why the analysis call specifically was answered 429 during a start is
+still unknown, and is not explained by anything here.
+
+The numbers moved with what was measured. The slowest cold start seen took
+three minutes, so the budget went from a hundred seconds to four minutes. And
+the gap between probes now doubles from five seconds to a cap of thirty: a
+probe that fails at once is being refused, and a fixed short gap turned each
+refusal into dozens more from the same address.

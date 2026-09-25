@@ -16,8 +16,8 @@ import (
 
 // versionRefreshTimeout bounds a refresh that nobody is waiting on. It has to
 // clear a cold start of the AI service — measured at up to three minutes on a
-// free instance — because abandoning the request abandons the start it
-// triggered, and the next caller then begins again from nothing.
+// free instance — or the refresh gives up just before the answer arrives, and
+// every caller in the meantime is left with no version at all.
 const versionRefreshTimeout = 4 * time.Minute
 
 // Version describes what an analysis depends on. A cached result is only valid
@@ -87,8 +87,9 @@ func (c *VersionClient) Recent(ctx context.Context) (Version, error) {
 // get holds what the two share. How long the caller waits and how long the
 // refresh runs are separate on purpose, and the caller's context governs only
 // the first: the refresh starts detached and runs to completion however soon
-// the caller gives up. Cancelling it would abandon the cold start it triggered,
-// and the next caller would begin that start again from nothing.
+// the caller gives up. Tied to the caller, a request path that gives up after
+// two seconds would cancel every fetch it started, and against a service slower
+// than that to answer none would ever finish — each caller starting one over.
 func (c *VersionClient) get(ctx context.Context, staleIsFine bool) (Version, error) {
 	if version, ok := c.fresh(); ok {
 		return version, nil
