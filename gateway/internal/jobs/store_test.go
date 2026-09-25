@@ -6,20 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/papyrus/gateway/internal/jobs"
+	"github.com/papyrus/gateway/internal/schema/schematest"
 )
 
 // These run against a real Postgres. `for update skip locked` is the whole
@@ -34,110 +28,42 @@ var (
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
-	container, err := tcpostgres.Run(ctx, "postgres:17-alpine",
-		tcpostgres.WithDatabase("papyrus"),
-		tcpostgres.WithUsername("papyrus"),
-		tcpostgres.WithPassword("papyrus"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(90*time.Second),
-		),
-	)
+	var stop func()
+	var err error
+	pool, stop, err = schematest.Start(ctx)
 	if err != nil {
 		// Locally a missing Docker should skip rather than fail; on CI it is a
 		// real failure, because there the container is always available.
 		if os.Getenv("CI") != "" {
-			fmt.Fprintf(os.Stderr, "starting postgres: %v\n", err)
+			fmt.Fprintf(os.Stderr, "jobs store: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "skipping jobs store tests, no docker: %v\n", err)
 		os.Exit(0)
 	}
-	defer func() { _ = testcontainers.TerminateContainer(container) }()
 
-	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "connection string: %v\n", err)
+	if err := seedUsers(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "seeding users: %v\n", err)
+		stop()
 		os.Exit(1)
 	}
 
-	// Built the way the deployed pool is built, including the query mode. The
-	// point of testing against a real engine is lost if the connection is
-	// configured differently from the one that runs in production — a statement
-	// that works under pgx's default mode can fail under exec mode, and that
-	// difference is invisible to a test pool that uses the default.
-	poolCfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "parsing dsn: %v\n", err)
-		os.Exit(1)
-	}
-	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
-
-	pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "connecting: %v\n", err)
-		os.Exit(1)
-	}
-	defer pool.Close()
-
-	if err := applySchema(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "applying schema: %v\n", err)
-		os.Exit(1)
-	}
-
-	os.Exit(m.Run())
+	code := m.Run()
+	stop()
+	os.Exit(code)
 }
 
-// applySchema runs the real migrations, not a hand-written copy of them: a test
-// schema that drifts from the deployed one tests the wrong thing. Only
-// `auth.users`, which Supabase provides, is stubbed.
-//
-// The migrations are discovered rather than named. Naming one meant that adding
-// a column to the queue left every test in this file failing against a schema
-// from before it — which is the drift the paragraph above warns about, arrived
-// at by hand. Anything touching this table is picked up now; the migrations that
-// do not are skipped, because they reach into Supabase's storage schema and
-// stubbing that would be a lot of scaffolding for a table these tests never
-// read.
-func applySchema(ctx context.Context) error {
-	const authStub = `
-		create schema if not exists auth;
-		create table if not exists auth.users (id uuid primary key);`
-
-	if _, err := pool.Exec(ctx, authStub); err != nil {
-		return fmt.Errorf("auth stub: %w", err)
-	}
-
-	dir := filepath.Join("..", "..", "..", "supabase", "migrations")
-	files, err := filepath.Glob(filepath.Join(dir, "*.sql"))
-	if err != nil {
-		return fmt.Errorf("listing migrations: %w", err)
-	}
-	// Zero-padded names, so lexical order is the order they were written in.
-	sort.Strings(files)
-
-	applied := 0
-	for _, file := range files {
-		migration, err := os.ReadFile(file)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", filepath.Base(file), err)
-		}
-		if !strings.Contains(string(migration), "analysis_jobs") {
-			continue
-		}
-		if _, err := pool.Exec(ctx, string(migration)); err != nil {
-			return fmt.Errorf("running %s: %w", filepath.Base(file), err)
-		}
-		applied++
-	}
-	if applied == 0 {
-		return fmt.Errorf("no migrations for analysis_jobs found in %s", dir)
-	}
-
+// seedUsers creates the two users the tests act as. They get an email because
+// real ones always have one: a signup fires the trigger that provisions a
+// profile, and the profile requires it. A user without one is a user
+// production cannot have.
+func seedUsers(ctx context.Context) error {
 	for _, id := range []string{testerA, testerB} {
-		if _, err := pool.Exec(ctx, "insert into auth.users (id) values ($1) on conflict do nothing", id); err != nil {
-			return fmt.Errorf("seeding user: %w", err)
+		if _, err := pool.Exec(ctx,
+			"insert into auth.users (id, email) values ($1, $2) on conflict do nothing",
+			id, id+"@example.com",
+		); err != nil {
+			return err
 		}
 	}
 	return nil
