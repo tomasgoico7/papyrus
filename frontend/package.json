@@ -10,10 +10,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.5.2",
-    "@supabase/supabase-js": "^2.45.4",
+    "@supabase/supabase-js": "^2.117.2",
     "clsx": "^2.1.1",
     "docx": "^9.7.1",
     "lucide-react": "^0.454.0",
