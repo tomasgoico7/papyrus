@@ -95,6 +95,10 @@ const ERROR_CODE_KEYS: Record<string, keyof Dictionary["result"]["errors"]> = {
   // the right move and usually works, so it must not fall through to the
   // generic message the way an unmapped code would.
   worker_lost: "workerLost",
+  // Load shedding. Both mean "busy, come back shortly" rather than "broken",
+  // and saying so is the difference between someone retrying and leaving.
+  queue_full: "queueFull",
+  overloaded: "overloaded",
   rate_limited: "rateLimited",
   // The gateway sends this when the AI service answers with something that is
   // not our error envelope — a proxy page, usually. Without it here the user
