@@ -101,6 +101,11 @@ func run() error {
 		}()
 	} else if cfg.RunWorker {
 		return errors.New("RUN_WORKER is set but DATABASE_URL is empty")
+	} else {
+		// No database, so no schema for a migration to be missing from. Left at
+		// its zero value the gauge would read as a migration outstanding, and an
+		// alert on it would fire for every deployment that runs without a queue.
+		metrics.SetSchemaReady(true)
 	}
 
 	if cfg.RunWorker {
