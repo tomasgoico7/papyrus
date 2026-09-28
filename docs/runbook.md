@@ -269,6 +269,57 @@ off does not put a hole in anybody else's trace.
 
 ---
 
+## The breaker is open
+
+`ai service breaker opened; failing fast and holding the queue` in the log, and
+`upstream_breaker_state` at `2` on `/metrics`, mean five calls to the AI service
+failed in a row. From then on:
+
+- Synchronous requests are answered at once with 503, `upstream_unavailable`,
+  and a `Retry-After` of the cooldown left. Nobody waits out the failure.
+- The worker stops claiming jobs. Queued work waits without spending attempts.
+- The queue keeps accepting new jobs.
+
+The trial after each cooldown is a real job's call, the oldest due, and it spends
+one of that job's attempts. A long outage still produces dead letters, one job at
+a time as the trials slow down, instead of every queued job burning its attempts
+at once.
+
+After thirty seconds one trial call goes through — `ai service breaker trying one
+call` — and either closes it or reopens it for twice as long, up to five minutes.
+The readiness probe is not behind the breaker, so the worker still notices the
+moment the service answers.
+
+**On the free tier, the usual cause is the AI service asleep.** The gateway
+cannot wake it; a browser can (see ADR 0014). Opening the app's workspace wakes
+it, and the next trial closes the breaker. Check that an outside request still
+wakes it with the `curl` further down this page.
+
+If the AI service is awake and answering `/health` but the breaker keeps
+reopening, the failures are server errors from real calls. That is a bug in the
+AI service or its model provider, not the network: look at its logs.
+
+## Requests are being shed
+
+`requests_shed_total` rising, by reason:
+
+- **`concurrency`** — eight synchronous calls to the AI service were already in
+  flight, and the next was turned away with 503, `overloaded`, `Retry-After: 5`.
+  Each holds its upload in memory, and the ceiling is what keeps that bounded on
+  a half-gigabyte instance. Sustained shedding here means the synchronous path is
+  carrying load the queue should be: check why clients are falling back to it,
+  usually the schema gate or the queue being off.
+- **`queue_full`** — twenty jobs were already waiting and a new one was refused
+  with 503, `queue_full`, `Retry-After: 60`. Resubmits of work already queued are
+  never refused. Sustained, it means the worker is not draining: is the breaker
+  open, is the schema behind, is the worker running at all?
+
+Neither limit is ever reached at current traffic. Both are fixed in code next to
+their reasoning (ADR 0016); raising them is a deploy, and on the free tier the
+database and the instance memory are what they protect.
+
+---
+
 ## The queue is off: the schema is behind
 
 `database schema is behind; the queue is off until it is migrated` in the log,

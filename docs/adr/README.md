@@ -31,6 +31,8 @@ duplicating the depth here would double the maintenance for no reader.
 | [0012](0012-gate-the-queue-on-the-schema-version.md) | Gate the queue on the schema version | Accepted |
 | [0013](0013-hold-the-queue-plans-in-tests.md) | Hold the queue's query plans in tests | Accepted |
 | [0014](0014-wake-the-ai-service-from-the-browser.md) | Wake the AI service from the browser | Accepted |
+| [0015](0015-break-the-circuit-to-the-ai-service.md) | Break the circuit to the AI service | Accepted |
+| [0016](0016-turn-away-what-cannot-be-served.md) | Turn away what cannot be served | Accepted |
 
 Records 0001 to 0005 were written after the fact, from decisions already visible
 in the code. Everything from 0006 on is recorded as it is taken.

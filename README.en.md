@@ -553,6 +553,39 @@ production. That is the point: the cost is set by the design and proven by a
 test, rather than holding because nobody has used it much yet. See
 [ADR 0013](docs/adr/0013-hold-the-queue-plans-in-tests.md).
 
+
+### Resilience: stop insisting, and say no in time
+
+When the AI service stops answering — parked by the platform, redeploying, or
+down with its model provider — every caller used to find out separately: a
+synchronous request waited out the failure, the next one waited it out again,
+and the worker spent a job's attempts on calls the previous ones had already
+shown would fail.
+
+**A shared circuit breaker** in front of everything that talks to the service —
+analyses, tailoring, the version fetch — opens after five consecutive failures.
+Open, the request path answers at once with 503 and `Retry-After`, and the
+worker stops claiming jobs: they wait in the queue instead of spending attempts
+on an outage already known. After 30 seconds a single trial call goes through —
+a real job's call, which does spend an attempt — and if it succeeds, the breaker
+closes. The readiness probe does not go through the breaker, because it is the
+very thing that notices the service is back.
+
+**Load shedding** where the free tier makes it necessary:
+
+| Limit | Why | Past it |
+|---|---|---|
+| 8 synchronous calls in flight | each holds the CV in memory; the instance has 512 MB | 503 `overloaded` |
+| 20 waiting jobs | each keeps its PDF in Postgres; the database has 500 MB | 503 `queue_full` |
+
+Queue admission is part of the same `INSERT` that enqueues, so resubmitting work
+already queued joins the existing job even when the queue is full: only new work
+is refused. And a test on the Go side fails if the gateway can send an error
+code the frontend has no message for — which is how two errors had already
+ended up showing the generic message.
+See [ADR 0015](docs/adr/0015-break-the-circuit-to-the-ai-service.md) and
+[ADR 0016](docs/adr/0016-turn-away-what-cannot-be-served.md).
+
 ---
 
 ## Testing

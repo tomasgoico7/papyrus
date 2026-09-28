@@ -555,6 +555,39 @@ en producción. Ese es el punto: que el costo lo fije el diseño y lo pruebe un
 test, en vez de sostenerse porque todavía nadie la usó mucho. Ver
 [ADR 0013](docs/adr/0013-hold-the-queue-plans-in-tests.md).
 
+
+### Resiliencia: dejar de insistir, y decir que no a tiempo
+
+Cuando el servicio de IA deja de responder —dormido por la plataforma,
+redeployando, o caído con su proveedor de modelos—, antes cada llamador se
+enteraba por separado: un request síncrono esperaba la falla entera, el
+siguiente la esperaba de nuevo, y el worker gastaba los intentos de un job en
+llamadas que los anteriores ya habían mostrado que iban a fallar.
+
+**Un circuit breaker compartido** por todo lo que le habla al servicio —
+análisis, tailor, fetch de versión— se abre tras cinco fallas consecutivas.
+Abierto, el camino del request responde al instante con 503 y `Retry-After`, y
+el worker deja de reclamar jobs: esperan en la cola sin gastar intentos contra
+una caída ya conocida. Tras 30 segundos pasa una sola llamada de prueba —la de
+un job real, que sí gasta un intento—; si sale bien, cierra. La sonda
+de readiness no pasa por el breaker, porque es justamente lo que detecta que el
+servicio volvió.
+
+**Load shedding** donde el free tier lo hace necesario:
+
+| Límite | Por qué | Al pasarlo |
+|---|---|---|
+| 8 llamadas síncronas en vuelo | cada una retiene el CV en memoria; la instancia tiene 512 MB | 503 `overloaded` |
+| 20 jobs en espera | cada uno guarda el PDF en Postgres; la base tiene 500 MB | 503 `queue_full` |
+
+La admisión a la cola va dentro del mismo `INSERT` que encola, así que un doble
+submit de algo ya encolado se une al job existente aunque la cola esté llena:
+solo se rechaza trabajo nuevo. Y un test del lado Go falla si el gateway puede
+mandar un código de error que el frontend no sabe mostrar — la forma en que dos
+errores ya habían caído en el mensaje genérico antes.
+Ver [ADR 0015](docs/adr/0015-break-the-circuit-to-the-ai-service.md) y
+[ADR 0016](docs/adr/0016-turn-away-what-cannot-be-served.md).
+
 ---
 
 ## Tests
