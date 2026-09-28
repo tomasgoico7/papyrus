@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/papyrus/gateway/internal/app"
+	"github.com/papyrus/gateway/internal/breaker"
 	"github.com/papyrus/gateway/internal/config"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
@@ -147,4 +149,35 @@ func TestAWorkerCanWaitLongerThanTheRequestPath(t *testing.T) {
 	if analysis.Score != 70 {
 		t.Errorf("score = %d, want the upstream's answer", analysis.Score)
 	}
+}
+
+// TestTheReadinessProbeIsNotStoppedByTheBreaker guards the one client that must
+// get through an open breaker. The probe is how the gateway notices the upstream
+// has recovered; built on the guarded client, it would be refused along with
+// everything else, and the breaker would have no way to learn the outage ended.
+func TestTheReadinessProbeIsNotStoppedByTheBreaker(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer upstream.Close()
+
+	guard := breaker.New(breaker.Config{FailureThreshold: 1, Cooldown: time.Hour}, nil)
+	guarded := app.GuardedUpstreamClient(5*time.Second, guard)
+
+	resp, err := guarded.Get(upstream.URL + "/analyze")
+	if err != nil {
+		t.Fatalf("first guarded call: %v", err)
+	}
+	resp.Body.Close()
+	if _, err := guarded.Get(upstream.URL + "/analyze"); !errors.Is(err, breaker.ErrOpen) {
+		t.Fatalf("setup: the guarded client should now refuse, got %v", err)
+	}
+
+	// Same upstream, same moment, the plain client the probe is built on.
+	probe := app.UpstreamClient(5 * time.Second)
+	resp, err = probe.Get(upstream.URL + "/health")
+	if err != nil {
+		t.Fatalf("the probe was stopped while the breaker is open: %v", err)
+	}
+	resp.Body.Close()
 }

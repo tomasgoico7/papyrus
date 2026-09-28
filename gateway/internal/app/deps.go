@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/papyrus/gateway/internal/breaker"
 	"github.com/papyrus/gateway/internal/cache"
 	"github.com/papyrus/gateway/internal/config"
 	"github.com/papyrus/gateway/internal/observability"
@@ -136,21 +137,61 @@ func UpstreamBudget(cfg *config.Config) time.Duration {
 // The timeout should come from UpstreamBudget: it has to clear the longest
 // deadline any caller sets, or it becomes the real limit and theirs are
 // decoration.
+//
+// This one does not consult the circuit breaker, and is for the readiness probe
+// alone: the probe is how the gateway notices the upstream is back, and a probe
+// the breaker refused could never notice. Everything that does work against the
+// upstream uses GuardedUpstreamClient.
 func UpstreamClient(requestTimeout time.Duration) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.MaxIdleConns = 100
-	transport.MaxIdleConnsPerHost = 100
-	transport.IdleConnTimeout = 90 * time.Second
+	return upstreamClient(requestTimeout, pooledTransport())
+}
 
+// GuardedUpstreamClient is UpstreamClient behind the circuit breaker. The
+// breaker sits inside the tracing, so a call it refuses still appears in the
+// trace — a short span with the refusal on it — rather than vanishing.
+func GuardedUpstreamClient(requestTimeout time.Duration, guard *breaker.Breaker) *http.Client {
+	return upstreamClient(requestTimeout, &breaker.Transport{Base: pooledTransport(), Breaker: guard})
+}
+
+func upstreamClient(requestTimeout time.Duration, base http.RoundTripper) *http.Client {
 	return &http.Client{
 		// Wrapped at the transport rather than at each call site, so a request
 		// cannot be made through this client without carrying the trace. This
 		// is also what puts the traceparent header on the wire: the AI service
 		// is a separate process, and without it the model call shows up as time
 		// the gateway spent doing nothing.
-		Transport: otelhttp.NewTransport(transport, otelhttp.WithSpanNameFormatter(upstreamSpanName)),
+		Transport: otelhttp.NewTransport(base, otelhttp.WithSpanNameFormatter(upstreamSpanName)),
 		Timeout:   requestTimeout + 5*time.Second,
 	}
+}
+
+func pooledTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 100
+	transport.IdleConnTimeout = 90 * time.Second
+	return transport
+}
+
+// Breaker is the one circuit breaker for the AI service in this process. Every
+// guarded client is built on it, so what one call learns about the upstream,
+// every caller acts on.
+func Breaker(metrics *observability.Metrics, logger *slog.Logger) *breaker.Breaker {
+	logger = logger.With(slog.String("component", "breaker"))
+	return breaker.New(breaker.Config{}, func(from, to breaker.State) {
+		metrics.RecordBreakerTransition(to.String())
+		attrs := []any{slog.String("from", from.String()), slog.String("to", to.String())}
+		switch to {
+		case breaker.Open:
+			// Worth a warning: from here, requests fail fast and queued jobs
+			// wait rather than spend their attempts on a known outage.
+			logger.Warn("ai service breaker opened; failing fast and holding the queue", attrs...)
+		case breaker.Closed:
+			logger.Info("ai service breaker closed; calls are going through again", attrs...)
+		default:
+			logger.Info("ai service breaker trying one call", attrs...)
+		}
+	})
 }
 
 // upstreamSpanName names an outbound span by the path it calls. The default is

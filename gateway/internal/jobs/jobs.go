@@ -18,6 +18,10 @@ import (
 // caller, so a probe cannot use the difference to discover another user's ids.
 var ErrNotFound = errors.New("jobs: not found")
 
+// ErrQueueFull reports that a new job was turned away because the queue already
+// holds as many waiting jobs as it admits.
+var ErrQueueFull = errors.New("jobs: queue full")
+
 // State is where a job sits in its lifecycle.
 //
 //	queued ──claim──> running ──success──> done

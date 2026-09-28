@@ -39,6 +39,10 @@ type Metrics struct {
 	rateLimitShared prometheus.Gauge
 
 	schemaReady prometheus.Gauge
+
+	breakerState       prometheus.Gauge
+	breakerTransitions *prometheus.CounterVec
+	shed               *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -129,6 +133,26 @@ func NewMetrics() *Metrics {
 				Help: "1 when the database has the schema this build needs, 0 while a migration is outstanding.",
 			},
 		),
+		breakerState: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "upstream_breaker_state",
+				Help: "Circuit breaker in front of the AI service: 0 closed, 1 half-open, 2 open.",
+			},
+		),
+		breakerTransitions: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "upstream_breaker_transitions_total",
+				Help: "Circuit breaker state changes, by the state entered.",
+			},
+			[]string{"to"},
+		),
+		shed: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "requests_shed_total",
+				Help: "Requests turned away before any work was done, by reason.",
+			},
+			[]string{"reason"},
+		),
 	}
 
 	m.registry.MustRegister(
@@ -145,6 +169,9 @@ func NewMetrics() *Metrics {
 		m.rateLimits,
 		m.rateLimitShared,
 		m.schemaReady,
+		m.breakerState,
+		m.breakerTransitions,
+		m.shed,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
@@ -276,4 +303,25 @@ func (m *Metrics) SetSchemaReady(ready bool) {
 		value = 1
 	}
 	m.schemaReady.Set(value)
+}
+
+// Breaker states as the gauge reports them. Ordered by how much is getting
+// through, so the graph reads upwards as things get worse.
+var breakerStates = map[string]float64{"closed": 0, "half_open": 1, "open": 2}
+
+// RecordBreakerTransition notes the breaker entering state.
+func (m *Metrics) RecordBreakerTransition(state string) {
+	m.breakerState.Set(breakerStates[state])
+	m.breakerTransitions.WithLabelValues(state).Inc()
+}
+
+// Shed reasons, kept to a fixed set so the label cannot grow.
+const (
+	ShedConcurrency = "concurrency"
+	ShedQueueFull   = "queue_full"
+)
+
+// RecordShed counts a request turned away before any work was done on it.
+func (m *Metrics) RecordShed(reason string) {
+	m.shed.WithLabelValues(reason).Inc()
 }

@@ -661,3 +661,65 @@ func TestAJobEnqueuedWithoutATraceClaimsCleanly(t *testing.T) {
 		t.Errorf("traceparent = %q, want empty", claimed.TraceParent)
 	}
 }
+
+func TestAFullQueueTurnsAwayNewWork(t *testing.T) {
+	newStore(t)
+	store := jobs.NewStore(pool, jobs.WithQueueLimit(2))
+	ctx := context.Background()
+
+	for _, key := range []string{"first", "second"} {
+		if _, created, err := store.Enqueue(ctx, newJob(key)); err != nil || !created {
+			t.Fatalf("enqueue %s: created=%v err=%v", key, created, err)
+		}
+	}
+
+	// Each waiting job holds its upload in the database. Past the limit the
+	// backlog is a risk to the database, and the work would start after the
+	// person asking for it had stopped waiting anyway.
+	if _, _, err := store.Enqueue(ctx, newJob("third")); !errors.Is(err, jobs.ErrQueueFull) {
+		t.Errorf("enqueue past the limit = %v, want ErrQueueFull", err)
+	}
+}
+
+func TestAFullQueueStillJoinsWorkAlreadyInIt(t *testing.T) {
+	newStore(t)
+	store := jobs.NewStore(pool, jobs.WithQueueLimit(2))
+	ctx := context.Background()
+
+	first, _, err := store.Enqueue(ctx, newJob("first"))
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if _, _, err := store.Enqueue(ctx, newJob("second")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// A double click on work that is already queued adds nothing to the queue,
+	// so refusing it would be wrong: the second submit joins the first.
+	joined, created, err := store.Enqueue(ctx, newJob("first"))
+	if err != nil {
+		t.Fatalf("resubmitting queued work into a full queue: %v", err)
+	}
+	if created || joined.ID != first.ID {
+		t.Errorf("created=%v id=%s; want it joined to %s", created, joined.ID, first.ID)
+	}
+}
+
+func TestOnlyWaitingJobsCountAgainstTheLimit(t *testing.T) {
+	newStore(t)
+	store := jobs.NewStore(pool, jobs.WithQueueLimit(1))
+	ctx := context.Background()
+
+	if _, _, err := store.Enqueue(ctx, newJob("running")); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if _, err := store.Claim(ctx, time.Minute); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	// The limit bounds the backlog. A job a worker is already on is not
+	// backlog, and counting it would shrink the queue to nothing under load.
+	if _, created, err := store.Enqueue(ctx, newJob("waiting")); err != nil || !created {
+		t.Errorf("enqueue with only a running job ahead: created=%v err=%v", created, err)
+	}
+}

@@ -17,6 +17,18 @@ import (
 	"github.com/papyrus/gateway/internal/services"
 )
 
+// maxConcurrentUpstream caps the synchronous calls to the AI service in flight
+// at once. Each holds its upload in memory for the length of a model call, up to
+// five megabytes; eight of them is forty megabytes of an instance with five
+// hundred. The AI service, one process on a free instance, would not answer
+// more than that any faster.
+const maxConcurrentUpstream = 8
+
+// upstreamRetryAfterSeconds is what a request turned away is told. A slot frees
+// when a model call ends, which is tens of seconds; a few seconds is a first
+// retry worth making, not a promise.
+const upstreamRetryAfterSeconds = 5
+
 // New builds the HTTP engine. The metrics registry and the analyzer are passed
 // in rather than created here: the worker shares both when it runs in this
 // process, and two registries would mean half the numbers missing from
@@ -26,6 +38,7 @@ func New(
 	logger *slog.Logger,
 	metrics *observability.Metrics,
 	analyzer services.Analyzer,
+	upstream *http.Client,
 	queue handlers.JobQueue,
 	queueReady func() bool,
 ) *gin.Engine {
@@ -51,7 +64,6 @@ func New(
 		middleware.CORS(cfg.AllowedOrigins),
 	)
 
-	upstream := app.UpstreamClient(cfg.RequestTimeout)
 	analyzeHandler := handlers.NewAnalyzeHandler(analyzer, cfg.MaxUploadBytes, cfg.RequestTimeout)
 	tailor := services.NewTailorClient(cfg.AIServiceURL, cfg.AIServiceToken, upstream)
 	tailorHandler := handlers.NewTailorHandler(tailor, cfg.MaxUploadBytes, cfg.RequestTimeout)
@@ -63,15 +75,18 @@ func New(
 
 	authed := engine.Group("/")
 	authed.Use(middleware.Auth(keySet.Keyfunc), middleware.RateLimit(rateLimiter))
-	authed.POST("/analyze", analyzeHandler.Handle)
-	authed.POST("/tailor/questions", tailorHandler.Questions)
-	authed.POST("/tailor/generate", tailorHandler.Generate)
+	// The routes that hold a request open while the model works share one
+	// ceiling: they share the upstream and the memory each upload takes.
+	upstreamLimit := middleware.Limit(maxConcurrentUpstream, upstreamRetryAfterSeconds, metrics)
+	authed.POST("/analyze", upstreamLimit, analyzeHandler.Handle)
+	authed.POST("/tailor/questions", upstreamLimit, tailorHandler.Questions)
+	authed.POST("/tailor/generate", upstreamLimit, tailorHandler.Generate)
 
 	// The asynchronous path appears only where there is a queue behind it. The
 	// synchronous endpoint stays either way, so a deployment without a database
 	// keeps working exactly as before.
 	if lookup, ok := analyzer.(handlers.AnalysisLookup); ok && queue != nil {
-		analyses := handlers.NewAnalysesHandler(lookup, queue, cfg.MaxUploadBytes, cfg.RequestTimeout)
+		analyses := handlers.NewAnalysesHandler(lookup, queue, metrics, cfg.MaxUploadBytes, cfg.RequestTimeout)
 		queued := authed.Group("/", whenReady(queueReady))
 		queued.POST("/analyses", analyses.Submit)
 		queued.GET("/analyses/:id", analyses.Status)

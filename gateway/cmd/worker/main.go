@@ -78,11 +78,15 @@ func run() error {
 	gate.Check(ctx)
 	go gate.Run(ctx)
 
-	upstream := app.UpstreamClient(app.UpstreamBudget(cfg))
+	// The analysis goes through the breaker; the readiness probe must not. The
+	// probe is how the worker learns the upstream is back, and one the breaker
+	// refused would never learn it.
+	guard := app.Breaker(metrics, logger)
+	upstream := app.GuardedUpstreamClient(app.UpstreamBudget(cfg), guard)
 	drain := worker.New(
-		worker.Gated(jobs.NewStore(pool), gate.Ready),
+		worker.Gated(jobs.NewStore(pool), func() bool { return gate.Ready() && guard.Ready() }),
 		app.Analyzer(cfg, upstream, metrics, logger),
-		app.Readiness(cfg, upstream),
+		app.Readiness(cfg, app.UpstreamClient(app.UpstreamBudget(cfg))),
 		metrics,
 		logger,
 		worker.Config{

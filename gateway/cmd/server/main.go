@@ -45,7 +45,11 @@ func run() error {
 
 	// One registry and one analyzer, shared with the worker when it runs here:
 	// two of either would split the cache and halve the metrics.
-	upstream := app.UpstreamClient(app.UpstreamBudget(cfg))
+	// One breaker for the AI service, shared by every caller in the process:
+	// the request path, the worker and the tailor all learn from each other's
+	// failures instead of each discovering the outage separately.
+	guard := app.Breaker(metrics, logger)
+	upstream := app.GuardedUpstreamClient(app.UpstreamBudget(cfg), guard)
 	analyzer := app.Analyzer(cfg, upstream, metrics, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -100,12 +104,17 @@ func run() error {
 	}
 
 	if cfg.RunWorker {
-		startWorker(ctx, store, queueReady, logger, metrics, analyzer, cfg, &workers)
+		// The worker waits on the breaker as well as the schema. A job claimed
+		// while the upstream is known to be down would spend an attempt on a
+		// call that is refused before it is made; left in the queue, it runs
+		// once a trial call has shown the upstream is back.
+		workReady := func() bool { return queueReady() && guard.Ready() }
+		startWorker(ctx, store, workReady, logger, metrics, analyzer, cfg, &workers)
 	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           router.New(cfg, logger, metrics, analyzer, queue, queueReady),
+		Handler:           router.New(cfg, logger, metrics, analyzer, upstream, queue, queueReady),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 

@@ -37,9 +37,15 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 // AnalysesHandler serves the asynchronous analyze endpoints: submitting returns
 // immediately, and the result is collected later.
+// ShedRecorder counts requests turned away before any work was done on them.
+type ShedRecorder interface {
+	RecordShed(reason string)
+}
+
 type AnalysesHandler struct {
 	lookup         AnalysisLookup
 	queue          JobQueue
+	shed           ShedRecorder
 	maxUploadBytes int64
 	requestTimeout time.Duration
 }
@@ -47,12 +53,14 @@ type AnalysesHandler struct {
 func NewAnalysesHandler(
 	lookup AnalysisLookup,
 	queue JobQueue,
+	shed ShedRecorder,
 	maxUploadBytes int64,
 	requestTimeout time.Duration,
 ) *AnalysesHandler {
 	return &AnalysesHandler{
 		lookup:         lookup,
 		queue:          queue,
+		shed:           shed,
 		maxUploadBytes: maxUploadBytes,
 		requestTimeout: requestTimeout,
 	}
@@ -111,6 +119,19 @@ func (h *AnalysesHandler) Submit(c *gin.Context) {
 		// another process, rather than starting an unrelated one.
 		TraceParent: observability.TraceParentFrom(ctx),
 	})
+	if errors.Is(err, jobs.ErrQueueFull) {
+		// Turned away rather than admitted, and said plainly: a job this far back
+		// would start after the person asking had stopped waiting, and each one
+		// waiting holds its upload in a database with room for few of them.
+		if h.shed != nil {
+			h.shed.RecordShed(observability.ShedQueueFull)
+		}
+		logger.Warn("queue full; turning the analysis away")
+		c.Header("Retry-After", "60")
+		httpx.RespondError(c, http.StatusServiceUnavailable, "queue_full",
+			"Too many analyses are waiting right now. Please try again in a few minutes.")
+		return
+	}
 	if err != nil {
 		logger.Error("queueing the analysis failed", slog.Any("error", err))
 		httpx.RespondError(c, http.StatusServiceUnavailable, "queue_unavailable",

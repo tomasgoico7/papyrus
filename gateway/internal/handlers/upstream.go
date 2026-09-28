@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/papyrus/gateway/internal/breaker"
 	"github.com/papyrus/gateway/internal/httpx"
 	"github.com/papyrus/gateway/internal/observability"
 	"github.com/papyrus/gateway/internal/services"
@@ -47,6 +50,20 @@ func respondUpstream(c *gin.Context, err error, operation string) {
 			httpx.RespondError(c, upstream.StatusCode, upstream.Code, upstream.Message)
 			return
 		}
+	}
+
+	// Checked before the timeout, because a refused call is not a slow one: it
+	// was never made. The breaker already knows the upstream is down, so the
+	// honest answer is to say so at once and when to come back, instead of
+	// making this caller wait out the same failure the last few did.
+	var open *breaker.OpenError
+	if errors.As(err, &open) {
+		retry := max(int(math.Ceil(open.RetryAfter.Seconds())), 1)
+		c.Header("Retry-After", strconv.Itoa(retry))
+		logger.Warn("upstream call refused by the breaker", slog.Int("retry_after", retry))
+		httpx.RespondError(c, http.StatusServiceUnavailable, "upstream_unavailable",
+			"The service is temporarily unavailable. Please try again shortly.")
+		return
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) {

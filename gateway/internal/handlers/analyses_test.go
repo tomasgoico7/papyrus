@@ -81,7 +81,7 @@ func (q *stubQueue) Get(_ context.Context, id, userID string) (*jobs.Job, error)
 // so the tests exercise the same "who is asking" plumbing the real routes use.
 func analysesEngine(lookup handlers.AnalysisLookup, queue handlers.JobQueue, as string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	handler := handlers.NewAnalysesHandler(lookup, queue, 5<<20, 10*time.Second)
+	handler := handlers.NewAnalysesHandler(lookup, queue, nil, 5<<20, 10*time.Second)
 
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
@@ -323,5 +323,46 @@ func TestStatusRejectsAnUnauthenticatedCaller(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+type recordedShed struct{ reasons []string }
+
+func (r *recordedShed) RecordShed(reason string) { r.reasons = append(r.reasons, reason) }
+
+func TestAFullQueueIsToldApartFromABrokenOne(t *testing.T) {
+	queue := &stubQueue{enqueueErr: jobs.ErrQueueFull}
+	shed := &recordedShed{}
+
+	gin.SetMode(gin.TestMode)
+	handler := handlers.NewAnalysesHandler(stubLookup{key: "cache-key"}, queue, shed, 5<<20, 10*time.Second)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) { c.Set(httpx.ContextUserID, ownerID); c.Next() })
+	engine.POST("/analyses", handler.Submit)
+
+	rec := submit(t, engine)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Its own code, not queue_unavailable. "Busy, come back in a few minutes"
+	// and "something is broken" call for different messages and different
+	// alerts, and they were once the same line.
+	if envelope.Error.Code != "queue_full" {
+		t.Errorf("code = %q, want queue_full", envelope.Error.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("no Retry-After; a client told the queue is full should be told when to come back")
+	}
+	if len(shed.reasons) != 1 || shed.reasons[0] != "queue_full" {
+		t.Errorf("shed = %v, want one queue_full", shed.reasons)
 	}
 }

@@ -42,9 +42,10 @@ func TestTheQueuedRoutesAreWhereTheClientLooksForThem(t *testing.T) {
 	}
 	metrics := observability.NewMetrics()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	analyzer := app.Analyzer(cfg, app.UpstreamClient(app.UpstreamBudget(cfg)), metrics, logger)
+	upstream := app.UpstreamClient(app.UpstreamBudget(cfg))
+	analyzer := app.Analyzer(cfg, upstream, metrics, logger)
 
-	engine := router.New(cfg, logger, metrics, analyzer, noQueue{}, func() bool { return true })
+	engine := router.New(cfg, logger, metrics, analyzer, upstream, noQueue{}, func() bool { return true })
 
 	registered := map[string]bool{}
 	for _, route := range engine.Routes() {

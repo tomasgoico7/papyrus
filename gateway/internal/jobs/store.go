@@ -13,15 +13,41 @@ import (
 
 const defaultMaxAttempts = 3
 
+// DefaultQueueLimit is how many waiting jobs the queue admits before turning
+// new ones away. Each waiting job holds its upload in the database, and the
+// free tier's database is five hundred megabytes: at the five megabyte upload
+// cap, twenty of them are a fifth of it. Twenty is also about eight minutes of
+// work at two analyses at a time, already twice as long as a browser keeps
+// polling — a job admitted past that would start after the person who asked
+// for it had stopped waiting.
+const DefaultQueueLimit = 20
+
 // Store is the queue's persistence. It does storage and nothing else: whether a
 // failure deserves another attempt, and how long to wait, is the worker's
 // policy, not the table's.
 type Store struct {
-	pool *pgxpool.Pool
+	pool       *pgxpool.Pool
+	queueLimit int
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+// Option adjusts a Store.
+type Option func(*Store)
+
+// WithQueueLimit sets how many waiting jobs the queue admits.
+func WithQueueLimit(limit int) Option {
+	return func(s *Store) {
+		if limit > 0 {
+			s.queueLimit = limit
+		}
+	}
+}
+
+func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
+	s := &Store{pool: pool, queueLimit: DefaultQueueLimit}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // pollColumns is everything a caller polling a job needs — deliberately without
@@ -43,16 +69,22 @@ func (s *Store) Enqueue(ctx context.Context, input NewJob) (*Job, bool, error) {
 		maxAttempts = defaultMaxAttempts
 	}
 
+	// Admission is part of the insert rather than a count taken beforehand, so a
+	// second submit of work already in the queue is joined to it by the conflict
+	// clause even when the queue is full — only genuinely new work is refused.
+	// The count is not locked, so a burst can overshoot the limit by a few; the
+	// limit is there to stop an unbounded backlog, not to be exact.
 	const insert = `
 		insert into analysis_jobs (user_id, dedup_key, cv, cv_filename, job_offer, job_title, max_attempts, traceparent)
-		values ($1, $2, $3, $4, $5, $6, $7, $8)
+		select $1, $2, $3, $4, $5, $6, $7, $8
+		where (select count(*) from analysis_jobs where state = 'queued') < $9
 		on conflict (dedup_key) where state in ('queued', 'running') do nothing
 		returning ` + pollColumns
 
 	row := s.pool.QueryRow(ctx, insert,
 		input.UserID, input.DedupKey, input.CV, input.CVFilename,
 		input.JobOffer, nullable(input.JobTitle), maxAttempts,
-		nullable(input.TraceParent),
+		nullable(input.TraceParent), s.queueLimit,
 	)
 
 	job, err := scanJob(row)
@@ -63,25 +95,38 @@ func (s *Store) Enqueue(ctx context.Context, input NewJob) (*Job, bool, error) {
 		return nil, false, fmt.Errorf("jobs: enqueue: %w", err)
 	}
 
-	// The insert was skipped, so a live job already holds this key. Returning it
-	// is the whole point of the conflict clause. The job keeps the trace of the
-	// request that created it rather than this one's: the work belongs to the
-	// first caller's trace, and this caller is joining it, not starting it.
+	// The insert was skipped: either a live job already holds this key, or the
+	// queue is full. Joining a live job is the whole point of the conflict
+	// clause, and it is checked first so a double submit is never refused. The
+	// job keeps the trace of the request that created it rather than this
+	// one's: the work belongs to the first caller's trace, and this caller is
+	// joining it, not starting it.
 	const existing = `
 		select ` + pollColumns + `
 		from analysis_jobs
 		where dedup_key = $1 and state in ('queued', 'running')`
 
 	job, err = scanJob(s.pool.QueryRow(ctx, existing, input.DedupKey))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// It finished between the two statements. Rare, and the caller can
-			// simply try again rather than be handed a job that does not exist.
-			return nil, false, ErrNotFound
-		}
+	if err == nil {
+		return job, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, fmt.Errorf("jobs: enqueue lookup: %w", err)
 	}
-	return job, false, nil
+
+	var queued int
+	if err := s.pool.QueryRow(ctx,
+		`select count(*) from analysis_jobs where state = 'queued'`,
+	).Scan(&queued); err != nil {
+		return nil, false, fmt.Errorf("jobs: enqueue count: %w", err)
+	}
+	if queued >= s.queueLimit {
+		return nil, false, ErrQueueFull
+	}
+	// Neither: the job that held the key finished between the two statements.
+	// Rare, and the caller can simply try again rather than be handed a job
+	// that does not exist.
+	return nil, false, ErrNotFound
 }
 
 // claimSQL is the claim, at package level so the test that checks its plan
