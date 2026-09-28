@@ -34,6 +34,7 @@ The interface is bilingual (English / Spanish), has light and dark themes, and t
 - **Compatibility scoring** — upload a CV (PDF) and a job posting, get a 0–100 fit score plus a `strong` / `moderate` / `weak` verdict.
 - **Matched vs. missing skills** — the model separates what the posting asks for into what your CV already proves and what it doesn't.
 - **Actionable suggestions** — two to five specific edits for that role, ordered by impact, that never invent experience you don't have.
+- **A CV tailored to the role** — before writing anything, the model asks about what the posting wants and your CV doesn't show. From your answers it writes a version of the CV for that role, which you download as PDF or Word. Anything you mark as "I don't have this" stays out: it never invents experience. It's saved with the analysis, so reopening it doesn't regenerate it.
 - **History with search and filters** — every analysis is saved. You can search them by role and filter by verdict, reopen any of them, reuse an already-uploaded CV against a new posting, download the original CV (signed URL, private bucket), or delete it (with a confirmation, because it also wipes the stored file).
 - **PDF export** — download any analysis as a clean, bilingual PDF (selectable text), generated in the browser.
 - **Share by link** — create an expiring public link so anyone can view the analysis (never your CV), revocable whenever you want.
@@ -120,16 +121,17 @@ If the gateway has no queue — or the database does not yet have the schema the
 
 ```
 papyrus/
-├── frontend/                    # Next.js 14 app
+├── frontend/                    # Next.js 14 app, Node 22
 │   ├── app/                     # routes: landing, /dashboard, /share/[token], /auth/{callback,signout}
 │   ├── components/
-│   │   ├── analysis/            # score ring, skill lists, verdict badge, suggestions
+│   │   ├── analysis/            # score ring, skills, verdict, suggestions, tailored CV
+│   │   ├── auth/, share/        # sign in and out, the public view of a shared analysis
 │   │   ├── dashboard/           # workspace, form, dropzone, history, result states
 │   │   ├── marketing/           # header, footer, hero preview, scroll reveal
 │   │   └── ui/                  # button, language/theme toggles, confirm dialog
 │   └── lib/
 │       ├── analyses/, cvs/      # Supabase data access (the "repositories")
-│       ├── api/                 # gateway client
+│       ├── api/                 # gateway client, job polling, waking the AI service
 │       ├── i18n/                # dictionaries (en/es) + server & client helpers
 │       └── supabase/            # browser / server / middleware clients
 ├── gateway/                     # Go + Gin edge
@@ -138,21 +140,24 @@ papyrus/
 │   └── internal/
 │       ├── app/                 # composition root: wiring shared by API and worker
 │       ├── auth/                # JWKS fetch + cache, ES256/RS256 verification
+│       ├── breaker/             # circuit breaker in front of the AI service
+│       ├── buildinfo/           # which revision is running, reported on /health
 │       ├── cache/               # byte store: in-process LRU, Redis, and the tier
 │       ├── config/              # env loading + validation (fail fast)
-│       ├── handlers/, router/   # /analyze, /health, /metrics, engine assembly
+│       ├── handlers/, router/   # /analyze, /analyses, /tailor, /health, /metrics, engine assembly
 │       ├── jobs/                # Postgres queue, claimed with SKIP LOCKED
-│       ├── middleware/          # CORS, auth, rate limiting, request id
-│       ├── observability/       # structured logger and RED metrics
+│       ├── middleware/          # CORS, auth, rate limiting, load shedding, request id
+│       ├── observability/       # structured logger, RED metrics and traces
 │       ├── ratelimit/           # per-caller budget: local, Redis, and the fallback
 │       ├── requestid/           # correlation id and its context plumbing
+│       ├── schema/              # schema version and the gate that turns the queue off
 │       ├── worker/              # queue loop, jittered backoff, dead letters
 │       └── services/, transport/, httpx/
 ├── ai-service/                  # Python + FastAPI
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, model chain is faked
-├── supabase/migrations/         # 0001 schema+RLS, 0002 storage, 0003 bilingual, 0004 sharing
-├── docs/adr/                    # architecture decision records
+├── supabase/migrations/         # 0001–0005 user data · 0006–0009 the queue and the migration record
+├── docs/                        # adr/ for architecture decisions, runbook.md for running it
 ├── ops/                         # Prometheus config and Grafana dashboards
 ├── load/                        # k6 scenario + AI-service stub
 ├── docker-compose.yml
@@ -169,7 +174,7 @@ papyrus/
 - A free [Supabase](https://supabase.com) project
 - A free [Google AI Studio](https://aistudio.google.com/app/apikey) key
 
-If you want to run a service outside Docker you'll also need Node 20+, Go 1.26+, or Python 3.11+ depending on which one.
+If you want to run a service outside Docker you'll also need Node 22, Go 1.26+, or Python 3.11+ depending on which one.
 
 ### 1. Supabase (this is the only fiddly part)
 
@@ -179,6 +184,13 @@ If you want to run a service outside Docker you'll also need Node 20+, Go 1.26+,
 - [`0002_cv_storage.sql`](supabase/migrations/0002_cv_storage.sql) — the private `cvs` Storage bucket and owner-scoped object policies (`<user-id>/<cv-id>.pdf`).
 - [`0003_bilingual_analyses.sql`](supabase/migrations/0003_bilingual_analyses.sql) — only needed if your DB predates the bilingual change; it's a guarded no-op on a fresh install.
 - [`0004_analysis_sharing.sql`](supabase/migrations/0004_analysis_sharing.sql) — the sharing columns (`share_token`, `share_expires_at`) and the `get_shared_analysis` (`security definer`) function that serves an analysis over a public link without bypassing RLS.
+- [`0005_tailored_cv.sql`](supabase/migrations/0005_tailored_cv.sql) — the `tailored_cv` column on `analyses`, where the tailored CV is kept so it reopens without being regenerated.
+- [`0006_analysis_jobs.sql`](supabase/migrations/0006_analysis_jobs.sql) — the analysis queue, `analysis_jobs`, with RLS enabled and no policies: the browser cannot see it.
+- [`0007_analysis_jobs_traceparent.sql`](supabase/migrations/0007_analysis_jobs_traceparent.sql) — the `traceparent` that carries an analysis's trace across the queue.
+- [`0008_schema_migrations.sql`](supabase/migrations/0008_schema_migrations.sql) — the record of applied migrations, which the gateway compares against the version it needs.
+- [`0009_index_the_queue_for_its_queries.sql`](supabase/migrations/0009_index_the_queue_for_its_queries.sql) — the indexes for the queue's queries.
+
+Only [the queue](#the-queue-optional) uses the last four, but running them anyway costs nothing. Any of them can be pasted twice without breaking anything; a test holds them to it.
 
 **Google auth.** This is the part that takes a few minutes. In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configure the OAuth consent screen (External), then create an *OAuth client ID → Web application* with this authorized redirect URI:
 
@@ -202,7 +214,7 @@ Create one at [AI Studio](https://aistudio.google.com/app/apikey) → `GEMINI_AP
 ### 3. Environment + run
 
 ```bash
-cp .env.example .env     # fill in the four real values; the rest have sane defaults
+cp .env.example .env     # fill in the three real values; the rest have sane defaults
 docker compose up --build
 ```
 
@@ -212,9 +224,19 @@ docker compose up --build
 | Gateway     | http://localhost:8080   |
 | AI service  | http://localhost:8000   |
 
-Only four variables actually need real values — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `GEMINI_API_KEY`. Compose will warn you by name if any are missing. Stop everything with `docker compose down`.
+Only three variables actually need real values — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `GEMINI_API_KEY`. Compose will warn you by name if any are missing. Stop everything with `docker compose down`.
 
 > One catch: Next inlines `NEXT_PUBLIC_*` at **build** time, so if you change those you have to `docker compose up --build` again — a restart won't pick them up.
+
+### The queue (optional)
+
+Everything above already works: without `DATABASE_URL` the gateway does not register `POST /analyses`, and the frontend takes the synchronous path. To try the queue:
+
+1. Run migrations 0006 to 0009, if you haven't.
+2. In `.env`, set `DATABASE_URL` to the *transaction pooler* URL (Supabase → Project Settings → Database → Connection pooling) and `RUN_WORKER=true`, so the worker runs inside the gateway.
+3. Bring everything up again with `docker compose up`.
+
+On start, the gateway compares the schema's version with the one it needs. If a migration is missing it says so in the log and keeps the queue off; the frontend stays on the synchronous path, and the queue switches itself on within a minute of the migration going in.
 
 ### Running a single service
 
@@ -303,14 +325,21 @@ Errors share one envelope across all three services, so the frontend only has to
 
 The gateway passes a 4xx from the AI service straight through (e.g. `422 unreadable_cv` for a scanned PDF with no text layer) and collapses anything else — timeouts, 5xx, a dead upstream — into a `502`/`504`.
 
+There are two cases where the gateway does not even try, and answers `503` with `Retry-After`: `upstream_unavailable` while the circuit breaker is open, and `overloaded` when too many requests to the AI service are already in flight.
+
 ### `POST /analyses` — gateway *(asynchronous)*
 
 The same body as `/analyze`, but it does not wait for the model. It exists only
 where the gateway has a `DATABASE_URL`; without one the route is not registered.
+If the database does not yet have the schema the code needs, it answers
+`404 queue_unavailable`: the same as a gateway with no queue, so the browser falls
+back to the synchronous path without telling the two apart.
 
 - **`200`** — the result was already cached, in the same shape as `/analyze`.
   There is no job to create for work that is already done.
 - **`202`** — queued. `Location` points at where to check.
+- **`503 queue_full`** — twenty analyses are already waiting their turn. It comes
+  with `Retry-After: 60`.
 
 ```json
 { "jobId": "9f2c1ab3-…", "status": "queued" }
@@ -333,9 +362,47 @@ a failed lookup, so the reason travels in the body:
   "error": { "code": "unreadable_cv", "message": "…" } }
 ```
 
+### `POST /tailor/questions` — gateway
+
+The first step of the tailored CV. The same body as `/analyze`, plus an optional
+`locale` field (`en` or `es`) for the language of the questions. It returns the
+questions and the text already extracted from the PDF, which the second step reuses
+instead of parsing it again:
+
+```json
+{
+  "questions": [
+    { "topic": "Kubernetes", "question": "Have you run Kubernetes clusters? How large?" }
+  ],
+  "cvText": "Jane Doe · Backend engineer…"
+}
+```
+
+### `POST /tailor/generate` — gateway
+
+The second step. It takes JSON with the `cvText` from the first step, the posting and
+the answers, and returns the tailored CV:
+
+```json
+{
+  "cvText": "…",
+  "jobOffer": "…",
+  "jobTitle": "Backend Engineer",
+  "answers": [{ "topic": "Kubernetes", "answer": "Two years running a 40-node cluster." }],
+  "extra": "CKA certified in 2024."
+}
+```
+
+The response is structured — `fullName`, `contact`, `headline`, `summary`,
+`experience`, `skills`, `education`, `additional` — so the frontend can render it and
+export it to PDF or Word. Neither step goes through the queue or the cache: both are
+synchronous, behind the same circuit breaker and concurrency limit as `/analyze`.
+
 ### `GET /health` — gateway & AI service
 
-Returns `{ "status": "ok" }`. Used by the Docker and Render health checks.
+Returns `{ "status": "ok" }`; the gateway's also carries `"revision"`, the commit it
+was built from, so you can tell whether a deploy is live. Used by the Docker and
+Render health checks.
 
 ---
 
@@ -593,11 +660,14 @@ See [ADR 0015](docs/adr/0015-break-the-circuit-to-the-ai-service.md) and
 ## Testing
 
 ```bash
+cd frontend && npm test
 cd gateway && go test ./...
 cd ai-service && pip install -r requirements-dev.txt && pytest
 ```
 
-Both suites run **offline and for free** — they never call the live LLM. The gateway tests sign their own ES256 tokens and stub the AI service with `httptest`; the Python tests inject a fake LangChain chain and build real one-page PDFs with `reportlab` to exercise the extraction boundary. The tests target the parts most likely to break quietly: token verification, the verdict bands, and "what happens when the PDF is garbage".
+All three suites run **offline and for free** — they never call the live LLM. The gateway tests sign their own ES256 tokens and stub the AI service with `httptest`; the Python tests inject a fake LangChain chain and build real one-page PDFs with `reportlab` to exercise the extraction boundary. The tests target the parts most likely to break quietly: token verification, the verdict bands, and "what happens when the PDF is garbage".
+
+The frontend tests cover the gateway client: polling, the fallback to the synchronous path, waking the AI service and the error map. The queue and schema tests start a real Postgres with testcontainers and apply every migration to it; without Docker they skip on your machine and fail on CI.
 
 > The Python tests target 3.11 (what the Dockerfile uses). On a much newer interpreter you may not get prebuilt wheels for the pinned deps.
 
@@ -605,9 +675,9 @@ Both suites run **offline and for free** — they never call the live LLM. The g
 
 ## Deploying
 
-- **Frontend → Vercel.** Import `frontend/`, set the `NEXT_PUBLIC_*` and `NEXT_PUBLIC_GATEWAY_URL` vars, deploy. Add the production callback URL to the Supabase redirect allow list and CORS origins.
-- **Gateway + AI service → Render.** Two Web Services from this repo, each pointing at its Dockerfile. Set each service's env from its `.env.example`, point `AI_SERVICE_URL` at the deployed AI service, and point the frontend's `NEXT_PUBLIC_GATEWAY_URL` at the deployed gateway.
-- **Supabase** is already managed — just keep using the same project.
+- **Frontend → Vercel.** Import `frontend/`, set the `NEXT_PUBLIC_*` vars and deploy; Vercel picks Node 22 up from `engines` in `package.json`. `NEXT_PUBLIC_AI_SERVICE_URL` is the AI service's URL, so the browser can wake it before an analysis needs it. Add the production callback URL to the Supabase redirect allow list and CORS origins.
+- **Gateway + AI service → Render.** Two Web Services from this repo, each pointing at its Dockerfile. Set each service's env from its `.env.example`, point `AI_SERVICE_URL` at the deployed AI service, and point the frontend's `NEXT_PUBLIC_GATEWAY_URL` at the deployed gateway. On the gateway, `DATABASE_URL` (the pooler) and `RUN_WORKER=true` turn the queue on with the worker in the same process; `cmd/worker` is there to run it separately once there is room for another service. `REDIS_URL` (Redis Cloud, `rediss://`) and the `OTEL_EXPORTER_OTLP_*` variables (Grafana Cloud) are optional. If you use `INTERNAL_API_KEY`, it has to match on both services.
+- **Supabase** is already managed — just keep using the same project. Migrations go in by hand through the SQL Editor, **before** pushing the code that needs them; the steps are in the [runbook](docs/runbook.md#adding-a-migration).
 
 ---
 

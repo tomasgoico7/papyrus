@@ -34,6 +34,7 @@ La interfaz es bilingüe (español / inglés), tiene tema claro y oscuro, y trat
 - **Score de compatibilidad** — subís un CV (PDF) y una oferta, y obtenés un score de ajuste del 0 al 100 más un veredicto `strong` / `moderate` / `weak`.
 - **Skills que coinciden vs. las que faltan** — el modelo separa lo que pide la oferta entre lo que tu CV ya demuestra y lo que no.
 - **Sugerencias accionables** — de dos a cinco cambios concretos para ese puesto, ordenados por impacto, que nunca inventan experiencia que no tenés.
+- **CV adaptado al puesto** — antes de escribir nada, el modelo te pregunta por lo que la oferta pide y tu CV no muestra. Con tus respuestas arma una versión del CV para ese puesto, que descargás en PDF o en Word. Lo que marcás como "No tengo esto" no se agrega: no inventa experiencia. Queda guardado con el análisis, así que reabrirlo no lo regenera.
 - **Historial con búsqueda y filtros** — cada análisis queda guardado. Podés buscarlos por puesto y filtrarlos por compatibilidad, reabrir cualquiera, reusar un CV ya subido para medirlo contra otra oferta, descargar el CV original (URL firmada, bucket privado), o eliminarlo (con confirmación, porque también borra el archivo guardado).
 - **Exportar a PDF** — descargás cualquier análisis como un PDF prolijo y bilingüe (texto seleccionable), generado en el navegador.
 - **Compartir por link** — generás un link público con vencimiento para que cualquiera vea el análisis (nunca tu CV), revocable cuando quieras.
@@ -120,16 +121,17 @@ Si el gateway no tiene cola —o la base todavía no tiene el esquema que el có
 
 ```
 papyrus/
-├── frontend/                    # app Next.js 14
+├── frontend/                    # app Next.js 14, Node 22
 │   ├── app/                     # rutas: landing, /dashboard, /share/[token], /auth/{callback,signout}
 │   ├── components/
-│   │   ├── analysis/            # anillo de score, listas de skills, badge de veredicto, sugerencias
+│   │   ├── analysis/            # anillo de score, skills, veredicto, sugerencias, CV adaptado
+│   │   ├── auth/, share/        # login y logout, la vista pública de un análisis compartido
 │   │   ├── dashboard/           # workspace, formulario, dropzone, historial, estados de resultado
 │   │   ├── marketing/           # header, footer, preview del hero, reveal al scrollear
 │   │   └── ui/                  # botón, toggles de idioma/tema, diálogo de confirmación
 │   └── lib/
 │       ├── analyses/, cvs/      # acceso a datos de Supabase (los "repositorios")
-│       ├── api/                 # cliente del gateway
+│       ├── api/                 # cliente del gateway, sondeo de jobs, despertar el servicio de IA
 │       ├── i18n/                # diccionarios (en/es) + helpers de server y cliente
 │       └── supabase/            # clientes browser / server / middleware
 ├── gateway/                     # borde Go + Gin
@@ -138,21 +140,24 @@ papyrus/
 │   └── internal/
 │       ├── app/                 # composition root: el wiring que comparten API y worker
 │       ├── auth/                # fetch + caché de JWKS, verificación ES256/RS256
+│       ├── breaker/             # circuit breaker delante del servicio de IA
+│       ├── buildinfo/           # qué revisión está corriendo, expuesta en /health
 │       ├── cache/               # store de bytes: LRU en proceso, Redis, y el tier
 │       ├── config/              # carga + validación del entorno (fail fast)
-│       ├── handlers/, router/   # /analyze, /health, /metrics, armado del engine
+│       ├── handlers/, router/   # /analyze, /analyses, /tailor, /health, /metrics, armado del engine
 │       ├── jobs/                # cola en Postgres, reclamada con SKIP LOCKED
-│       ├── middleware/          # CORS, auth, rate limiting, request id
-│       ├── observability/       # logger estructurado y métricas RED
+│       ├── middleware/          # CORS, auth, rate limiting, load shedding, request id
+│       ├── observability/       # logger estructurado, métricas RED y trazas
 │       ├── ratelimit/           # presupuesto por usuario: local, en Redis, y el fallback
 │       ├── requestid/           # id de correlación y su transporte por contexto
+│       ├── schema/              # versión del esquema y el gate que apaga la cola
 │       ├── worker/              # loop de la cola, backoff con jitter, dead letters
 │       └── services/, transport/, httpx/
 ├── ai-service/                  # Python + FastAPI
 │   ├── app/{api,core,schemas,services}/
 │   └── tests/                   # offline, la cadena del modelo está fakeada
-├── supabase/migrations/         # 0001 esquema+RLS, 0002 storage, 0003 bilingüe, 0004 compartir
-├── docs/adr/                    # registro de decisiones de arquitectura
+├── supabase/migrations/         # 0001–0005 datos del usuario · 0006–0009 la cola y el registro de migraciones
+├── docs/                        # adr/ con las decisiones de arquitectura, runbook.md para operarlo
 ├── ops/                         # config de Prometheus y dashboards de Grafana
 ├── load/                        # escenario de k6 + stub del servicio de IA
 ├── docker-compose.yml
@@ -169,7 +174,7 @@ papyrus/
 - Un proyecto gratis de [Supabase](https://supabase.com)
 - Una key gratis de [Google AI Studio](https://aistudio.google.com/app/apikey)
 
-Si querés correr un servicio fuera de Docker vas a necesitar además Node 20+, Go 1.26+ o Python 3.11+, según cuál.
+Si querés correr un servicio fuera de Docker vas a necesitar además Node 22, Go 1.26+ o Python 3.11+, según cuál.
 
 ### 1. Supabase (esta es la única parte tediosa)
 
@@ -179,6 +184,13 @@ Si querés correr un servicio fuera de Docker vas a necesitar además Node 20+, 
 - [`0002_cv_storage.sql`](supabase/migrations/0002_cv_storage.sql) — el bucket privado `cvs` de Storage y las políticas de objetos scopeadas al dueño (`<user-id>/<cv-id>.pdf`).
 - [`0003_bilingual_analyses.sql`](supabase/migrations/0003_bilingual_analyses.sql) — solo hace falta si tu base es anterior al cambio bilingüe; en una instalación nueva es un no-op protegido.
 - [`0004_analysis_sharing.sql`](supabase/migrations/0004_analysis_sharing.sql) — las columnas de compartir (`share_token`, `share_expires_at`) y la función `get_shared_analysis` (`security definer`) que sirve un análisis por link público sin saltarse la RLS.
+- [`0005_tailored_cv.sql`](supabase/migrations/0005_tailored_cv.sql) — la columna `tailored_cv` en `analyses`, donde queda el CV adaptado para reabrirlo sin regenerarlo.
+- [`0006_analysis_jobs.sql`](supabase/migrations/0006_analysis_jobs.sql) — la cola de análisis, `analysis_jobs`, con RLS activado y sin políticas: el browser no la ve.
+- [`0007_analysis_jobs_traceparent.sql`](supabase/migrations/0007_analysis_jobs_traceparent.sql) — el `traceparent` que lleva la traza de un análisis a través de la cola.
+- [`0008_schema_migrations.sql`](supabase/migrations/0008_schema_migrations.sql) — el registro de migraciones aplicadas, que el gateway compara con la versión que necesita.
+- [`0009_index_the_queue_for_its_queries.sql`](supabase/migrations/0009_index_the_queue_for_its_queries.sql) — los índices de las consultas de la cola.
+
+Las cuatro últimas solo las usa [la cola](#la-cola-opcional), pero correrlas igual no cuesta nada. Cualquiera se puede pegar dos veces sin romper nada; hay un test que lo exige.
 
 **Auth de Google.** Esta es la parte que lleva unos minutos. En la [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configurá la pantalla de consentimiento de OAuth (External), después creá un *ID de cliente de OAuth → Aplicación web* con este URI de redireccionamiento autorizado:
 
@@ -202,7 +214,7 @@ Creá una en [AI Studio](https://aistudio.google.com/app/apikey) → `GEMINI_API
 ### 3. Entorno + correrlo
 
 ```bash
-cp .env.example .env     # completá los cuatro valores reales; el resto tiene defaults razonables
+cp .env.example .env     # completá los tres valores reales; el resto tiene defaults razonables
 docker compose up --build
 ```
 
@@ -212,9 +224,19 @@ docker compose up --build
 | Gateway     | http://localhost:8080   |
 | Servicio IA | http://localhost:8000   |
 
-Solo cuatro variables necesitan valores reales — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `GEMINI_API_KEY`. Compose te avisa por nombre si falta alguna. Frenás todo con `docker compose down`.
+Solo tres variables necesitan valores reales — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `GEMINI_API_KEY`. Compose te avisa por nombre si falta alguna. Frenás todo con `docker compose down`.
 
 > Un detalle: Next "hornea" las `NEXT_PUBLIC_*` en tiempo de **build**, así que si las cambiás tenés que hacer `docker compose up --build` de nuevo — un restart no las toma.
+
+### La cola (opcional)
+
+Con lo de arriba ya anda todo: sin `DATABASE_URL`, el gateway no registra `POST /analyses` y el frontend usa el camino síncrono. Para probar la cola:
+
+1. Corré las migraciones 0006 a 0009, si no lo hiciste.
+2. En `.env`, poné en `DATABASE_URL` la URL del *transaction pooler* (Supabase → Project Settings → Database → Connection pooling) y `RUN_WORKER=true`, para que el worker corra dentro del gateway.
+3. Levantá todo de nuevo con `docker compose up`.
+
+Al arrancar, el gateway compara la versión del esquema con la que necesita. Si falta una migración lo dice en el log y deja la cola apagada; el frontend sigue por el camino síncrono, y la cola se prende sola en menos de un minuto cuando la aplicás.
 
 ### Correr un solo servicio
 
@@ -303,14 +325,21 @@ Los errores comparten un único envelope en los tres servicios, así el frontend
 
 El gateway pasa un 4xx del servicio de IA tal cual (por ejemplo `422 unreadable_cv` para un PDF escaneado sin capa de texto) y colapsa cualquier otra cosa — timeouts, 5xx, un upstream caído — en un `502`/`504`.
 
+Hay dos casos en los que el gateway ni lo intenta y contesta `503` con `Retry-After`: `upstream_unavailable` cuando el circuit breaker está abierto, y `overloaded` cuando ya hay demasiados pedidos en vuelo hacia el servicio de IA.
+
 ### `POST /analyses` — gateway *(asíncrono)*
 
 Mismo cuerpo que `/analyze`, pero no espera al modelo. Existe sólo cuando el
-gateway tiene `DATABASE_URL`; sin eso, la ruta no está registrada.
+gateway tiene `DATABASE_URL`; sin eso, la ruta no está registrada. Si la base
+todavía no tiene el esquema que el código necesita, contesta `404 queue_unavailable`:
+lo mismo que un gateway sin cola, así el browser cae al camino síncrono sin tener
+que distinguir los dos casos.
 
 - **`200`** — el resultado ya estaba en caché, con la misma forma que `/analyze`.
   No se crea ningún job para trabajo que ya está hecho.
 - **`202`** — encolado. `Location` apunta a dónde consultarlo.
+- **`503 queue_full`** — ya hay 20 análisis esperando turno. Viene con
+  `Retry-After: 60`.
 
 ```json
 { "jobId": "9f2c1ab3-…", "status": "queued" }
@@ -333,9 +362,46 @@ fallo de la consulta, así que el motivo viaja en el cuerpo:
   "error": { "code": "unreadable_cv", "message": "…" } }
 ```
 
+### `POST /tailor/questions` — gateway
+
+El primer paso del CV adaptado. Mismo cuerpo que `/analyze`, más un campo `locale`
+opcional (`en` o `es`) para el idioma de las preguntas. Devuelve las preguntas y el
+texto ya extraído del PDF, que el segundo paso reusa para no volver a parsearlo:
+
+```json
+{
+  "questions": [
+    { "topic": "Kubernetes", "question": "¿Operaste clústeres de Kubernetes? ¿De qué tamaño?" }
+  ],
+  "cvText": "Jane Doe · Backend engineer…"
+}
+```
+
+### `POST /tailor/generate` — gateway
+
+El segundo paso. Recibe JSON con el `cvText` del paso anterior, la oferta y las
+respuestas, y devuelve el CV adaptado:
+
+```json
+{
+  "cvText": "…",
+  "jobOffer": "…",
+  "jobTitle": "Backend Engineer",
+  "answers": [{ "topic": "Kubernetes", "answer": "Dos años operando un clúster de 40 nodos." }],
+  "extra": "Certificación CKA en 2024."
+}
+```
+
+La respuesta viene estructurada —`fullName`, `contact`, `headline`, `summary`,
+`experience`, `skills`, `education`, `additional`— para que el frontend la renderice
+y la exporte a PDF o Word. Ninguno de los dos pasos usa la cola ni el caché: son
+síncronos, detrás del mismo circuit breaker y el mismo límite de concurrencia que
+`/analyze`.
+
 ### `GET /health` — gateway y servicio IA
 
-Devuelve `{ "status": "ok" }`. Lo usan los health checks de Docker y Render.
+Devuelve `{ "status": "ok" }`; el del gateway suma `"revision"`, el commit del build,
+para saber si un deploy ya salió. Lo usan los health checks de Docker y Render.
 
 ---
 
@@ -595,11 +661,14 @@ Ver [ADR 0015](docs/adr/0015-break-the-circuit-to-the-ai-service.md) y
 ## Tests
 
 ```bash
+cd frontend && npm test
 cd gateway && go test ./...
 cd ai-service && pip install -r requirements-dev.txt && pytest
 ```
 
-Las dos suites corren **offline y gratis** — nunca llaman al LLM real. Los tests del gateway firman sus propios tokens ES256 y mockean el servicio de IA con `httptest`; los de Python inyectan una cadena de LangChain falsa y arman PDFs reales de una página con `reportlab` para ejercitar la extracción. Apuntan a lo que más probablemente se rompa en silencio: la verificación de tokens, las bandas del veredicto, y "qué pasa cuando el PDF es basura".
+Las tres suites corren **offline y gratis** — nunca llaman al LLM real. Los tests del gateway firman sus propios tokens ES256 y mockean el servicio de IA con `httptest`; los de Python inyectan una cadena de LangChain falsa y arman PDFs reales de una página con `reportlab` para ejercitar la extracción. Apuntan a lo que más probablemente se rompa en silencio: la verificación de tokens, las bandas del veredicto, y "qué pasa cuando el PDF es basura".
+
+Los del frontend cubren el cliente del gateway: el sondeo, la caída al camino síncrono, el despertar del servicio de IA y el mapa de errores. Los de la cola y del esquema levantan un Postgres real con testcontainers y le aplican todas las migraciones; sin Docker se saltean en tu máquina, y en CI fallan.
 
 > Los tests de Python apuntan a 3.11 (lo que usa el Dockerfile). En un intérprete mucho más nuevo puede que no haya wheels precompiladas para las dependencias fijadas.
 
@@ -607,9 +676,9 @@ Las dos suites corren **offline y gratis** — nunca llaman al LLM real. Los tes
 
 ## Deploy
 
-- **Frontend → Vercel.** Importá `frontend/`, seteá las vars `NEXT_PUBLIC_*` y `NEXT_PUBLIC_GATEWAY_URL`, deployá. Agregá la callback URL de producción a la lista de redirects de Supabase y a los orígenes de CORS.
-- **Gateway + servicio IA → Render.** Dos Web Services desde este repo, cada uno apuntando a su Dockerfile. Seteá el entorno de cada uno desde su `.env.example`, apuntá `AI_SERVICE_URL` al servicio de IA deployado, y apuntá el `NEXT_PUBLIC_GATEWAY_URL` del frontend al gateway deployado.
-- **Supabase** ya es managed — seguís usando el mismo proyecto.
+- **Frontend → Vercel.** Importá `frontend/`, seteá las vars `NEXT_PUBLIC_*` y deployá; Vercel toma Node 22 del `engines` del `package.json`. `NEXT_PUBLIC_AI_SERVICE_URL` es la URL del servicio de IA, para que el browser lo despierte antes de que un análisis lo necesite. Agregá la callback URL de producción a la lista de redirects de Supabase y a los orígenes de CORS.
+- **Gateway + servicio IA → Render.** Dos Web Services desde este repo, cada uno apuntando a su Dockerfile. Seteá el entorno de cada uno desde su `.env.example`, apuntá `AI_SERVICE_URL` al servicio de IA deployado, y apuntá el `NEXT_PUBLIC_GATEWAY_URL` del frontend al gateway deployado. En el gateway, `DATABASE_URL` (el pooler) y `RUN_WORKER=true` prenden la cola con el worker dentro del mismo proceso; `cmd/worker` está para correrlo aparte cuando haya lugar para un servicio más. `REDIS_URL` (Redis Cloud, `rediss://`) y las `OTEL_EXPORTER_OTLP_*` (Grafana Cloud) son opcionales. Si usás `INTERNAL_API_KEY`, tiene que ser la misma en los dos servicios.
+- **Supabase** ya es managed — seguís usando el mismo proyecto. Las migraciones se aplican a mano en el SQL Editor y **antes** de pushear el código que las necesita; el paso a paso está en el [runbook](docs/runbook.md#adding-a-migration).
 
 ---
 
