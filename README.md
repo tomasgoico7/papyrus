@@ -47,56 +47,57 @@ Todo corre en free tiers. No hay ninguna API key paga en todo el stack.
 
 ## Arquitectura
 
-Tres servicios, una regla clara: **el gateway nunca toca la base de datos, y el servicio de IA no guarda estado.** La persistencia vive entera en Supabase y se accede directo desde el browser a través de Row Level Security, así que cada lectura y escritura queda automáticamente scopeada al usuario logueado — ninguna credencial de base vive en un servidor que yo corra.
+Tres servicios y una cola. Los datos del usuario viven en Supabase y el browser los lee y escribe directo, bajo Row Level Security: cada fila queda scopeada al usuario logueado sin que ningún servidor intermedie. El gateway es el borde seguro para lo que necesita un secreto —hablar con el modelo—, y el servicio de IA es una función de `(CV, oferta)` a `análisis`, sin estado.
 
-Eso deja a cada servicio con exactamente una tarea: el frontend renderiza y es dueño de los datos del usuario, el gateway es el borde seguro para la única operación que necesita un secreto, y el servicio de IA es una función pura de `(CV, oferta)` a `análisis`.
+Al principio la regla era que el gateway no tocara la base. Desde que los análisis son asíncronos toca exactamente dos tablas —la cola de trabajos y el registro de migraciones—, con RLS activado y sin políticas, así que el browser no puede verlas. Eso significa que el gateway tiene una credencial de Postgres, y hoy es la del rol dueño de la base: podría leer más de lo que lee. Darle un rol propio con permisos solo sobre esas dos tablas está anotado como pendiente.
 
 ```
-                            ┌──────────────────────────────────────────────┐
-                            │                  Supabase                     │
-                            │   Postgres · Auth (Google) · Storage           │
-                            │   RLS-scoped: profiles, analyses, cvs          │
-                            └──────────────────────────────────────────────┘
-                               ▲                                  ▲
-                  Google OAuth │                   reads / writes │  publishable key
-                   + JWT (ES256)│                  under RLS      │  + user JWT
-                               │                                  │
-        ┌──────────────────────┴──────────────┐                  │
-        │              Frontend                │──────────────────┘
-        │      Next.js 14 · Tailwind · i18n    │
-        │   Landing · Auth · Dashboard · Hist. │
-        └──────────────────┬───────────────────┘
-                           │  POST /analyze
-                           │  multipart: cv (PDF) + jobOffer
-                           │  Authorization: Bearer <supabase JWT>
-                           ▼
-        ┌──────────────────────────────────────┐
-        │             API Gateway               │
-        │              Go · Gin                 │
-        │  CORS · per-user rate limit           │
-        │  JWT verify via JWKS · upload checks  │
-        └──────────────────┬───────────────────┘
-                           │  POST /analyze  (internal, server-to-server)
-                           ▼
-        ┌──────────────────────────────────────┐
-        │             AI Service                │
-        │       Python · FastAPI · LangChain    │
-        │  PDF → prompt → Gemini → JSON          │
-        │  bilingual, structured, stateless      │
-        └──────────────────────────────────────┘
+                  ┌───────────────────────────────────────────────────┐
+                  │                      Supabase                     │
+                  │   Postgres · Auth (Google) · Storage              │
+                  │   profiles · analyses · cvs   ← el browser, RLS   │
+                  │   analysis_jobs · schema_migrations  ← el gateway │
+                  └───────────────────────────────────────────────────┘
+                     ▲                                    ▲
+         OAuth + JWT │ lecturas / escrituras bajo RLS     │ cola: SKIP LOCKED
+                     │                                    │
+    ┌────────────────┴───────────────┐                    │
+    │            Frontend            │··········································┐
+    │   Next.js 14 · Vercel          │                    │   GET /health       :
+    └───────────────┬────────────────┘                    │   (lo despierta)    :
+                    │ POST /analyses → 202                │                     :
+                    │ GET /analyses/{id}  (sondeo)        │                     :
+                    ▼                                     │                     :
+    ┌──────────────────────────────────────────────┐      │                     :
+    │           API Gateway  ·  Go · Gin           ├──────┘                     :
+    │   JWKS · rate limit · load shedding          │                            :
+    │   caché · cola + worker · circuit breaker    ├── Redis: caché, rate limit :
+    └───────────────────────┬──────────────────────┘                            :
+                            │ análisis · versión  (breaker)                     :
+                            │ GET /health  (readiness)                          :
+                            ▼                                                   :
+    ┌──────────────────────────────────────────────┐                            :
+    │       AI Service  ·  Python · FastAPI        │◀···························┘
+    │   PDF → prompt → Gemini → JSON bilingüe      │
+    └──────────────────────────────────────────────┘
+
+      Cada salto lleva la misma traza OpenTelemetry, la cola incluida.
 ```
 
-El split, siendo honesto, es un poco demasiado para una herramienta de CVs — podrías colapsar todo en una sola app de Next.js con un par de route handlers. Lo dejé separado a propósito: la capa del LLM, el borde de requests y la UI escalan y fallan distinto, y quería que el proyecto se viera como algo que de verdad correrías en producción y no como un juguete de fin de semana. La versión honesta de eso está en [Decisiones y trade-offs](#decisiones-y-trade-offs).
+El split, siendo honesto, es mucho para una herramienta de CVs — podrías colapsar todo en una sola app de Next.js. Lo dejé separado a propósito: la capa del LLM, el borde de requests y la UI escalan y fallan distinto, y el proyecto existe para trabajar esos problemas de verdad. La versión honesta está en [Decisiones y trade-offs](#decisiones-y-trade-offs).
 
 ---
 
 ## El request, de punta a punta
 
-1. Te logueás con Google. Supabase hace el baile de OAuth y deja la sesión en cookies HTTP-only. El middleware refresca esa sesión en cada request y protege `/dashboard`.
-2. Subís un CV y pegás una oferta. El browser manda los dos al gateway como `multipart/form-data` con el access token de Supabase adjunto.
-3. El gateway verifica la firma del token contra el **JWKS** de tu proyecto (Supabase ahora firma con ES256, no con un secreto compartido), aplica un rate limit por usuario, chequea que el upload sea un PDF dentro del límite de tamaño, y reenvía el request al servicio de IA.
-4. El servicio de IA extrae el texto del CV con `pypdf`, arma un prompt estructurado, y le pide a Gemini — a través del `with_structured_output` de LangChain — un objeto JSON validado y bilingüe. El veredicto se calcula a partir del score en Python; no se le confía al modelo.
-5. El browser renderiza el resultado, sube el CV a un bucket de Storage privado, y escribe el análisis (linkeado a ese archivo) en la tabla `analyses`. RLS garantiza que solo veas tus propias filas y archivos. El CV original queda descargable después con una URL firmada de corta duración.
+1. **Login.** Supabase hace el OAuth con Google y deja la sesión en cookies HTTP-only. El middleware la refresca en cada request y protege `/dashboard`.
+2. **Abrís el workspace.** El browser le hace un `GET /health` directo al servicio de IA para despertarlo: en el free tier se duerme, y un request desde el gateway no lo despierta, pero uno desde afuera de la plataforma sí.
+3. **Enviás un CV y una oferta** a `POST /analyses`. El gateway verifica el JWT contra el JWKS de Supabase, aplica el rate limit por usuario (compartido entre réplicas vía Redis) y busca el resultado en el caché. Si el mismo análisis ya se hizo, vuelve al instante. Si no, lo encola en Postgres y responde `202` con el id del job — en menos de un segundo, aunque el servicio de IA esté dormido.
+4. **El worker** reclama el job con `SELECT … FOR UPDATE SKIP LOCKED` y llama al servicio de IA detrás de un circuit breaker. Si recibe un 429 de un arranque en frío, sondea `/health` hasta que el servicio contesta y reintenta a los dos segundos. El resultado queda en el job y en el caché.
+5. **El servicio de IA** extrae el texto con `pypdf` y le pide a Gemini, con el `with_structured_output` de LangChain, un JSON validado y bilingüe. El veredicto se calcula del score en Python; no se le confía al modelo.
+6. **El browser** sondea `GET /analyses/{id}` con un intervalo creciente, recibe el resultado, sube el CV a un bucket privado de Storage y escribe el análisis en `analyses`, bajo RLS.
+
+Si el gateway no tiene cola —o la base todavía no tiene el esquema que el código necesita—, `POST /analyses` responde 404 y el browser cae a `POST /analyze`, el camino síncrono original. El usuario igual obtiene su análisis.
 
 ---
 
@@ -104,13 +105,14 @@ El split, siendo honesto, es un poco demasiado para una herramienta de CVs — p
 
 | Capa        | Qué tiene                                                                    |
 |-------------|------------------------------------------------------------------------------|
-| Frontend    | Next.js 14 (App Router), TypeScript (strict), Tailwind CSS, `@supabase/ssr`, `next-themes`, i18n por cookie, `zod` para validar el entorno |
-| Gateway     | Go 1.26, Gin, `golang-jwt/v5` con verificación JWKS hecha a mano, `golang.org/x/time/rate` |
-| Servicio IA | Python 3.11, FastAPI, LangChain (`langchain-core` + `langchain-google-genai`), `pypdf`, `pydantic-settings` |
-| Base        | Supabase (PostgreSQL) con Row Level Security + Storage privado               |
+| Frontend    | Next.js 14 (App Router), TypeScript strict, Tailwind CSS, `@supabase/ssr`, `next-themes`, i18n por cookie, `zod`, Vitest |
+| Gateway     | Go 1.26, Gin, `pgx/v5`, `go-redis/v9`, `golang-jwt/v5` con JWKS hecho a mano, OpenTelemetry, Prometheus, testcontainers |
+| Servicio IA | Python 3.11, FastAPI, LangChain (`langchain-core` + `langchain-google-genai`), `pypdf`, `pydantic-settings`, `structlog`, OpenTelemetry |
+| Datos       | Supabase (PostgreSQL con RLS + Storage privado) · Redis (caché y rate limit compartidos) |
 | LLM         | Google Gemini (`gemini-2.5-flash`, free tier)                               |
-| Dev local   | Docker + Docker Compose                                                     |
-| Deploy      | Vercel (frontend) · Render (gateway + servicio IA) · Supabase (managed)     |
+| Observabilidad | Trazas OTLP a Grafana Cloud (Tempo) · métricas Prometheus · logs JSON con `trace_id` |
+| Dev local   | Docker Compose, con perfiles para observabilidad (Prometheus, Grafana, Tempo), dos réplicas y carga (k6) |
+| Deploy      | Vercel (frontend) · Render (gateway + servicio IA) · Supabase · Redis Cloud · Grafana Cloud — todo free tier |
 
 ---
 
@@ -632,6 +634,9 @@ Algunas elecciones que defiendo, y el costo de cada una:
 
 - **Tres servicios para una herramienta de CVs es exagerado, y ese es el punto.** Una sola app de Next.js sería menos para correr. Lo separé para que el trabajo del LLM, el borde seguro y la UI deployen y fallen por separado — y para que el repo se lea como producción, no como un demo. Si fuera un producto real con presupuesto, probablemente arrancaría junto y separaría después.
 - **CRUD directo a Supabase + RLS, en vez de enrutar todo por el gateway.** Es el patrón nativo de Supabase: menos código de pegamento, autorización centralizada en la base, menos latencia. El trade-off es que la forma de las tablas/columnas queda visible para el cliente y el frontend queda acoplado a la API de Supabase. Si necesitara ocultar el schema, correr transacciones multi-paso, o sumar reglas pesadas del lado del servidor, movería ese CRUD detrás del gateway. Para CRUD por usuario protegido con RLS, el camino directo es la decisión correcta.
+- **La cola vive en Postgres, no en un broker.** `SELECT … FOR UPDATE SKIP LOCKED` da exactamente la semántica que hace falta —cada job lo toma un solo worker, sin que los workers se esperen entre sí— y no suma infraestructura que pagar ni mantener viva en un free tier. El costo es sondear en vez de recibir push, que a este volumen no se nota, y que el gateway ahora tiene una credencial de base.
+- **Las propiedades que importan las sostiene un test, no un comentario.** Que ninguna consulta de la cola recorra la tabla entera, que cada migración se pueda pegar dos veces, que cada código de error tenga un mensaje en el frontend: todo eso falla CI si se rompe. Varias de esas propiedades estaban escritas en comentarios y resultaron falsas cuando alguien las midió.
+- **Despertar el servicio de IA desde el browser.** En el free tier la plataforma lo duerme, y un request desde el gateway no lo despierta mientras que uno desde afuera sí. Es un parche para una conducta observada, no documentada, y puede dejar de funcionar sin aviso — por eso está escrito como tal en el ADR 0014.
 - **Derivar el veredicto del score en código, no en el modelo.** Todo lo que puedo calcular de forma determinista, no se lo pido al LLM. Una cosa menos que dudar.
 - **Guardado del CV best-effort.** Si la subida a Storage falla, el análisis igual se guarda (sin archivo descargable) y la UI lo avisa sin drama. Un hipo de Storage no debería costarte el análisis que recién esperaste.
 
@@ -639,10 +644,11 @@ Algunas elecciones que defiendo, y el costo de cada una:
 
 ## Qué le agregaría
 
-- Un undo en el borrado (hoy confirma, y después chau) en vez de — o además de — el diálogo de confirmación.
-- Cachear pares `(CV, oferta)` idénticos para que re-correr sea gratis e instantáneo.
-- Tipos generados de Supabase para sacar el único cast `unknown` de la capa de datos.
-- Un esquema liviano de rate-limit / anti-abuso para el deploy público, más allá del presupuesto por usuario.
+- **Un rol de Postgres propio para el gateway**, con permisos solo sobre la cola y el registro de migraciones. Hoy usa el rol dueño de la base.
+- **Guardar el resultado en el historial desde el servidor.** Hoy lo escribe el browser cuando termina de sondear; si la persona cerró la pestaña antes, el análisis se hace igual pero no aparece en su historial — queda en el job y en el caché, y pedirlo de nuevo es instantáneo, pero no se ve.
+- **Despertar el servicio de IA a través de una ruta propia del frontend**, para que los bloqueadores de anuncios no corten el ping. Antes hay que medir si los servidores de Vercel lo despiertan como un browser o reciben el mismo 429 que el gateway.
+- Un undo en el borrado, en vez de —o además de— el diálogo de confirmación.
+- Tipos generados de Supabase, para sacar el único cast `unknown` de la capa de datos.
 
 ---
 
