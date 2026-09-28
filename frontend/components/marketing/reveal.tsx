@@ -50,7 +50,7 @@ export function Reveal({ children, className, delay = 0 }: RevealProps) {
       ref={ref}
       style={{ transitionDelay: visible ? `${delay}ms` : "0ms" }}
       className={cn(
-        "transition-[opacity,transform,filter] duration-[800ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
+        "transition-[opacity,transform,filter] [transition-duration:800ms] [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
         visible
           ? "translate-y-0 scale-100 opacity-100 blur-0"
           : "translate-y-8 scale-[0.97] opacity-0 blur-[3px]",
